@@ -196,35 +196,20 @@ async def _async_generate_dashboard(hass: HomeAssistant, dashboard_users: str) -
     }
 
     try:
-        # Use the lovelace websocket API to save dashboard config
-        connection = hass.helpers.frame.get_current_frame  # noqa: not needed
-        await hass.data["lovelace"]["dashboards"][DASHBOARD_URL_PATH].async_save(config)
+        dashboards = hass.data["lovelace"].dashboards
+        if DASHBOARD_URL_PATH not in dashboards:
+            _LOGGER.warning(
+                "Dashboard '%s' does not exist — create it in "
+                "Settings > Dashboards first, then reload the integration",
+                DASHBOARD_URL_PATH,
+            )
+            return
+        await dashboards[DASHBOARD_URL_PATH].async_save(config)
         _LOGGER.info(
             "Generated parental control dashboard for %d users: %s",
             len(users),
             ", ".join(users),
         )
-    except (KeyError, AttributeError):
-        # Dashboard doesn't exist yet — try the service call as fallback
-        try:
-            await hass.services.async_call(
-                "lovelace",
-                "save_config",
-                {"url_path": DASHBOARD_URL_PATH, "config": config},
-                blocking=True,
-            )
-            _LOGGER.info(
-                "Generated parental control dashboard for %d users: %s",
-                len(users),
-                ", ".join(users),
-            )
-        except Exception as err:
-            _LOGGER.warning(
-                "Could not generate dashboard — create '%s' dashboard in "
-                "Settings > Dashboards first, then reload the integration: %s",
-                DASHBOARD_URL_PATH,
-                err,
-            )
     except Exception as err:
         _LOGGER.warning(
             "Could not generate dashboard (create '%s' dashboard manually first): %s",
