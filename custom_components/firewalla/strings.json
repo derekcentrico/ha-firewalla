@@ -9,7 +9,7 @@
           "access_token": "Personal Access Token"
         },
         "data_description": {
-          "msp_url": "Your Firewalla MSP domain (e.g., mydomain.firewalla.net or https://mydomain.firewalla.net)",
+          "msp_url": "Your Firewalla MSP domain name",
           "access_token": "Your personal access token from the Firewalla MSP account"
         }
       },
@@ -25,7 +25,7 @@
       }
     },
     "error": {
-      "invalid_url_format": "MSP URL should be in format 'mydomain.firewalla.net' or 'https://mydomain.firewalla.net'",
+      "invalid_url_format": "Invalid MSP domain format. Enter your subdomain only (e.g., 'mydomain').",
       "auth_failed": "Invalid access token. Please check your token in MSP settings.",
       "connection_failed": "Cannot connect to MSP service. Please check your internet connection and MSP URL. Make sure the domain is correct.",
       "no_boxes": "No Firewalla boxes found in your MSP account. Please ensure your box is properly registered.",

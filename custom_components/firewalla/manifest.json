@@ -2,7 +2,7 @@
   "domain": "firewalla",
   "name": "Firewalla",
   "codeowners": [
-    "@custom-integration"
+    "@djuntgen"
   ],
   "config_flow": true,
   "dependencies": [],

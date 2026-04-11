@@ -46,7 +46,7 @@ Firewalla is great at managing your network, but checking time limits and toggli
 - Firewalla device (Gold, Gold SE, Purple, Purple SE, Blue, Red)
 - Firewalla MSP account with API access enabled
 - Personal Access Token from MSP settings
-- Home Assistant 2026.4+
+- Home Assistant 2024.1+
 
 ## Installation
 

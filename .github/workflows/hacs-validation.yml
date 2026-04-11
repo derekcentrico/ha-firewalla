@@ -4,12 +4,14 @@ on:
   push:
     branches:
       - main
-      - develop
   pull_request:
     branches:
       - main
-      - develop
+  schedule:
+    - cron: "0 0 * * *"
   workflow_dispatch:
+
+permissions: {}
 
 jobs:
   hacs-validation:
@@ -23,6 +25,16 @@ jobs:
         uses: hacs/action@main
         with:
           category: integration
+
+  hassfest-validation:
+    runs-on: ubuntu-latest
+    name: Hassfest Validation
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Hassfest validation
+        uses: home-assistant/actions/hassfest@master
 
   code-quality:
     runs-on: ubuntu-latest
@@ -60,7 +72,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
@@ -85,31 +97,31 @@ jobs:
           python -c "
           import json
           import sys
-          
+
           # Load and validate manifest
           with open('custom_components/firewalla/manifest.json') as f:
               manifest = json.load(f)
-          
+
           # Required fields for HACS
           required_fields = ['domain', 'name', 'version', 'documentation', 'requirements', 'codeowners']
           missing_fields = [field for field in required_fields if field not in manifest]
-          
+
           if missing_fields:
               print(f'Missing required fields: {missing_fields}')
               sys.exit(1)
-          
+
           # Validate domain matches directory name
           if manifest['domain'] != 'firewalla':
               print('Domain in manifest must match directory name')
               sys.exit(1)
-          
+
           # Validate version format
           import re
           version_pattern = r'^\d+\.\d+\.\d+$'
           if not re.match(version_pattern, manifest['version']):
               print('Version must follow semantic versioning (x.y.z)')
               sys.exit(1)
-          
+
           print('Manifest validation passed')
           "
 
@@ -123,24 +135,24 @@ jobs:
       - name: Check required documentation files
         run: |
           required_files=("README.md" "info.md" "LICENSE" "CHANGELOG.md")
-          
+
           for file in "${required_files[@]}"; do
             if [[ ! -f "$file" ]]; then
               echo "Missing required file: $file"
               exit 1
             fi
           done
-          
+
           echo "All required documentation files present"
 
       - name: Validate README structure
         run: |
           python -c "
           import sys
-          
+
           with open('README.md') as f:
               content = f.read()
-          
+
           # Check for required sections
           required_sections = [
               '# Firewalla Home Assistant Integration',
@@ -150,15 +162,15 @@ jobs:
               '## Usage',
               '## Troubleshooting'
           ]
-          
+
           missing_sections = []
           for section in required_sections:
               if section not in content:
                   missing_sections.append(section)
-          
+
           if missing_sections:
               print(f'Missing README sections: {missing_sections}')
               sys.exit(1)
-          
+
           print('README structure validation passed')
           "

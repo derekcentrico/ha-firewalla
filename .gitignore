@@ -1,5 +1,6 @@
-# Kiro IDE files
+# IDE/tool local config
 .kiro/
+.claude/
 
 # Python
 __pycache__/
