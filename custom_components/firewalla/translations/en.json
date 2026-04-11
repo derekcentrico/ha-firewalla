@@ -13,6 +13,18 @@
           "access_token": "Your personal access token from the Firewalla MSP account"
         }
       },
+      "reconfigure": {
+        "title": "Update Firewalla Credentials",
+        "description": "Update your MSP domain or personal access token.",
+        "data": {
+          "msp_url": "MSP Domain",
+          "access_token": "Personal Access Token"
+        },
+        "data_description": {
+          "msp_url": "Your Firewalla MSP domain (e.g., mydomain.firewalla.net)",
+          "access_token": "Your new personal access token"
+        }
+      },
       "box_selection": {
         "title": "Select Firewalla Box",
         "description": "Choose which Firewalla box to manage rules for. The integration will discover all existing rules and create switch entities for each one.",
@@ -42,6 +54,32 @@
       "auth_failed": "Authentication with the Firewalla MSP API failed. Please check your credentials."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Firewalla Options",
+        "description": "Configure rule filters and API polling intervals. Lower intervals mean faster updates but more API calls. If you hit rate limits (HTTP 429), increase these values.",
+        "data": {
+          "dashboard_users": "Dashboard Users",
+          "include_filters": "Include Filters",
+          "exclude_filters": "Exclude Filters",
+          "base_poll_interval": "Base Poll Interval (seconds)",
+          "full_rules_interval": "Full Rules Refresh (seconds)",
+          "devices_interval": "Devices Refresh (seconds)",
+          "users_cache_ttl": "Users Cache Duration (seconds)"
+        },
+        "data_description": {
+          "dashboard_users": "Comma-separated Firewalla user names for the parental control dashboard (e.g., Alice, Bob, Carol). Names must match your Firewalla group names exactly. Leave empty to skip dashboard generation.",
+          "include_filters": "One filter per line. Only rules matching these filters will be shown (OR logic).",
+          "exclude_filters": "One filter per line. Rules matching these filters will be hidden.",
+          "base_poll_interval": "How often to call the Firewalla API (30-300s, default 45s). Each poll fetches time limit data (~5 KB). All other data types refresh at their own intervals below. A manual Refresh button is also available on the Firewalla device page.",
+          "full_rules_interval": "How often to fetch all firewall rules including block/allow status, hit counts, and schedules (~55 KB). Between full refreshes, only time limit rules are fetched. (60-900s, default 300s)",
+          "devices_interval": "How often to fetch device data: online/offline status, IP addresses, bandwidth usage, and activity detection (~45 KB). Increasing this reduces API calls but delays device status updates. (60-600s, default 600s)",
+          "users_cache_ttl": "How long to cache user and group names before re-fetching (~2 KB). Names rarely change, so this can be high. (60-3600s, default 1800s)"
+        }
+      }
+    }
+  },
   "entity": {
     "switch": {
       "rule": {
@@ -49,6 +87,13 @@
         "state": {
           "on": "Active",
           "off": "Paused"
+        }
+      },
+      "internet_block": {
+        "name": "Internet",
+        "state": {
+          "on": "Block On",
+          "off": "Block Off"
         }
       }
     },

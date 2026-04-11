@@ -10,6 +10,11 @@ CONF_BOX_GID = "box_gid"
 CONF_RULE_FILTERS = "rule_filters"
 CONF_INCLUDE_FILTERS = "include_filters"
 CONF_EXCLUDE_FILTERS = "exclude_filters"
+CONF_DASHBOARD_USERS = "dashboard_users"
+CONF_BASE_POLL_INTERVAL = "base_poll_interval"
+CONF_FULL_RULES_INTERVAL = "full_rules_interval"
+CONF_DEVICES_INTERVAL = "devices_interval"
+CONF_USERS_CACHE_TTL = "users_cache_ttl"
 
 # Default MSP URL format (user should replace 'mydomain' with their actual domain)
 DEFAULT_MSP_URL_FORMAT = "mydomain.firewalla.net"
@@ -25,16 +30,14 @@ API_ENDPOINTS = {
     "rule_pause": "/rules/{rule_id}/pause",
     "rule_resume": "/rules/{rule_id}/resume",
     "rule_detail": "/rules/{rule_id}",
-    
+    "devices": "/devices",
+    "users": "/users",
     # V1 endpoints (legacy, for fallback)
     "legacy_rules": "/rule/list",
 }
 
 # Rule filtering options
-DEFAULT_RULE_FILTERS = {
-    "include_filters": [],
-    "exclude_filters": []
-}
+DEFAULT_RULE_FILTERS = {"include_filters": [], "exclude_filters": []}
 
 # Common rule filter examples for users
 RULE_FILTER_EXAMPLES = {
@@ -48,7 +51,7 @@ RULE_FILTER_EXAMPLES = {
     },
     "type_filters": {
         "app_rules_only": "target.type:app",
-        "category_rules_only": "target.type:category", 
+        "category_rules_only": "target.type:category",
         "domain_rules_only": "target.type:domain",
         "ip_rules_only": "target.type:ip",
         "internet_rules_only": "target.type:internet",
@@ -61,23 +64,34 @@ RULE_FILTER_EXAMPLES = {
         "exclude_paused": "-status:paused",
         "exclude_allow_rules": "-action:allow",
         "exclude_category_rules": "-target.type:category",
-    }
+    },
 }
 
 # Query parameters for rule discovery
 RULE_QUERY_PARAMS = {
     "status_active": "status:active",
-    "status_paused": "status:paused", 
+    "status_paused": "status:paused",
     "action_allow": "action:allow",
     "action_block": "action:block",
 }
 
 # Timeouts and intervals
 API_TIMEOUT = 30  # seconds
-UPDATE_INTERVAL = 30  # seconds minimum for API rate limiting
+UPDATE_INTERVAL = 45  # seconds — base coordinator poll cycle (default)
 RETRY_ATTEMPTS = 3
 RETRY_BACKOFF_FACTOR = 2
-RETRY_DELAYS = [1, 2, 4, 8]  # Exponential backoff delays in seconds
+RETRY_DELAYS = [
+    1,
+    2,
+    4,
+]  # Exponential backoff delays in seconds (one per retry attempt)
+
+# Split-polling defaults (configurable via options flow)
+DEFAULT_BASE_POLL_INTERVAL = 45  # seconds — base coordinator poll cycle
+DEFAULT_FULL_RULES_INTERVAL = 300  # seconds — full rules refresh (default 5 min)
+DEFAULT_DEVICES_INTERVAL = 600  # seconds — device list refresh (default 10 min)
+DEFAULT_USERS_CACHE_TTL = 1800  # seconds — user data cache (default 30 min)
+# Timelimit-only rules are fetched every base poll between full refreshes
 
 # Authentication
 AUTH_HEADER_FORMAT = "Token {token}"
@@ -89,15 +103,22 @@ ENTITY_ID_FORMATS = {
     "rules_sensor": "firewalla_rules_summary",
 }
 
-# Rule types from Firewalla API
+# Rule target types from Firewalla API (exhaustive per API docs)
 RULE_TYPES = {
+    "app": "Application",
+    "category": "Category",
+    "domain": "Domain",
     "internet": "Internet Access",
-    "category": "Category Block", 
-    "domain": "Domain Block",
-    "device": "Device Block",
-    "gaming": "Gaming Block",
+    "intranet": "Intranet Access",
+    "ip": "IP Address",
+    "net": "Network CIDR",
+    "region": "Region",
+    "remotePort": "Remote Port",
+    "targetlist": "Target List",
+    # Legacy/undocumented types seen in the wild
+    "device": "Device",
+    "gaming": "Gaming",
     "time": "Time-based Rule",
-    "app": "Application Block",
 }
 
 # Rule actions
@@ -105,32 +126,33 @@ RULE_ACTIONS = {
     "block": "Block",
     "allow": "Allow",
     "qos": "QoS",
+    "timelimit": "Time Limit",
 }
 
 # Rule status values
 RULE_STATUS = {
     "active": "Active",
-    "paused": "Paused", 
+    "paused": "Paused",
     "disabled": "Disabled",
 }
 
 # Target type prefixes
 TARGET_PREFIXES = {
     "mac": "MAC Address",
-    "ip": "IP Address", 
+    "ip": "IP Address",
     "category": "Category",
     "domain": "Domain",
     "app": "Application",
 }
 
 # Platforms
-PLATFORMS = ["switch", "sensor"]
+PLATFORMS = ["switch", "sensor", "binary_sensor", "button"]
 
 # Device information constants
 DEVICE_MANUFACTURER = "Firewalla"
 DEVICE_MODEL_MAPPINGS = {
     "gold": "Firewalla Gold",
-    "purple": "Firewalla Purple", 
+    "purple": "Firewalla Purple",
     "blue": "Firewalla Blue",
     "red": "Firewalla Red",
     "gold_se": "Firewalla Gold SE",
@@ -151,22 +173,31 @@ ERROR_MESSAGES = {
 # Rule attribute keys for entity attributes
 RULE_ATTRIBUTES = [
     "rule_id",
-    "rule_type", 
+    "rule_type",
     "target",
     "target_name",
     "action",
     "priority",
     "schedule",
+    "schedule_display",
     "created_at",
     "modified_at",
     "description",
+    "hit_count",
+    "last_hit",
+    "time_quota_minutes",
+    "time_used_minutes",
+    "scope_type",
+    "scope_value",
+    "direction",
+    "resumeTs",
 ]
 
 # Sensor attributes for rules summary
 SENSOR_ATTRIBUTES = [
     "total_rules",
     "active_rules",
-    "paused_rules", 
+    "paused_rules",
     "rules_by_type",
     "last_updated",
     "api_status",

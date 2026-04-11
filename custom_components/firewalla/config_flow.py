@@ -8,6 +8,7 @@ with Home Assistant. It provides a two-step process:
 The integration focuses on rule management - discovering existing Firewalla rules
 and creating switch entities for each rule to allow pause/resume control.
 """
+
 from __future__ import annotations
 
 import logging
@@ -17,27 +18,34 @@ from typing import Any, Dict, Optional
 import aiohttp
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
     CONF_ACCESS_TOKEN,
+    CONF_BASE_POLL_INTERVAL,
     CONF_BOX_GID,
+    CONF_DASHBOARD_USERS,
+    CONF_DEVICES_INTERVAL,
     CONF_EXCLUDE_FILTERS,
+    CONF_FULL_RULES_INTERVAL,
     CONF_INCLUDE_FILTERS,
     CONF_MSP_URL,
+    CONF_USERS_CACHE_TTL,
+    DEFAULT_BASE_POLL_INTERVAL,
+    DEFAULT_DEVICES_INTERVAL,
+    DEFAULT_FULL_RULES_INTERVAL,
     DEFAULT_MSP_URL_FORMAT,
+    DEFAULT_USERS_CACHE_TTL,
     DOMAIN,
-    ERROR_MESSAGES,
 )
 from .coordinator import FirewallaMSPClient
 
 _LOGGER = logging.getLogger(__name__)
 
 # MSP URL validation pattern
-MSP_URL_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9]\.firewalla\.net$')
+MSP_URL_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9]\.firewalla\.net$")
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -61,7 +69,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             # Preserve user input for data persistence
             self._user_input.update(user_input)
-            
+
             try:
                 msp_domain = user_input[CONF_MSP_URL].strip()
                 access_token = user_input[CONF_ACCESS_TOKEN].strip()
@@ -76,40 +84,57 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 elif not access_token:
                     _LOGGER.debug("Empty access token provided")
                     errors[CONF_ACCESS_TOKEN] = "auth_failed"
-                elif len(access_token) < 10:  # Reasonable minimum length for access token
-                    _LOGGER.debug("Access token too short: %d characters", len(access_token))
+                elif (
+                    len(access_token) < 10
+                ):  # Reasonable minimum length for access token
+                    _LOGGER.debug(
+                        "Access token too short: %d characters", len(access_token)
+                    )
                     errors[CONF_ACCESS_TOKEN] = "auth_failed"
                 else:
                     self._msp_domain = msp_domain
                     self._access_token = access_token
-                    
-                    _LOGGER.debug("Attempting MSP authentication with domain: %s", self._msp_domain)
-                    
+
+                    _LOGGER.debug(
+                        "Attempting MSP authentication with domain: %s",
+                        self._msp_domain,
+                    )
+
                     # Authenticate with MSP API and get available boxes
                     await self._authenticate_msp()
                     await self._get_available_boxes()
 
                     # If we have multiple boxes, proceed to box selection
                     if len(self._available_boxes) > 1:
-                        _LOGGER.debug("Found %d boxes, proceeding to box selection", len(self._available_boxes))
+                        _LOGGER.debug(
+                            "Found %d boxes, proceeding to box selection",
+                            len(self._available_boxes),
+                        )
                         return await self.async_step_box_selection()
                     elif len(self._available_boxes) == 1:
                         # Only one box, use it directly
                         box_gid = list(self._available_boxes.keys())[0]
                         box_info = self._available_boxes[box_gid]
-                        box_name = box_info.get("name", f"Firewalla {box_info.get('model', 'Box')}")
-                        
-                        _LOGGER.debug("Only one box found, using it directly: %s", box_name)
-                        
+                        box_name = box_info.get(
+                            "name", f"Firewalla {box_info.get('model', 'Box')}"
+                        )
+
+                        _LOGGER.debug(
+                            "Only one box found, using it directly: %s", box_name
+                        )
+
                         # Test rule access before completing setup
                         await self._test_rule_access()
-                        
+
                         # Check if this box is already configured
                         await self.async_set_unique_id(box_gid)
                         self._abort_if_unique_id_configured()
 
                         # Create the config entry
-                        _LOGGER.info("Successfully configured Firewalla integration for %s", box_name)
+                        _LOGGER.info(
+                            "Successfully configured Firewalla integration for %s",
+                            box_name,
+                        )
                         return self.async_create_entry(
                             title=box_name,
                             data={
@@ -139,7 +164,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Preserve previously entered values if they exist (data persistence)
         msp_domain_default = self._user_input.get(CONF_MSP_URL, DEFAULT_MSP_URL_FORMAT)
         access_token_default = self._user_input.get(CONF_ACCESS_TOKEN, "")
-        
+
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
@@ -167,19 +192,25 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     errors["base"] = "no_boxes"
                 else:
                     box_info = self._available_boxes[box_gid]
-                    box_name = box_info.get("name", f"Firewalla {box_info.get('model', 'Box')}")
-                    
-                    _LOGGER.debug("Creating config entry for box %s (GID: %s)", box_name, box_gid)
-                    
+                    box_name = box_info.get(
+                        "name", f"Firewalla {box_info.get('model', 'Box')}"
+                    )
+
+                    _LOGGER.debug(
+                        "Creating config entry for box %s (GID: %s)", box_name, box_gid
+                    )
+
                     # Test rule access before completing setup
                     await self._test_rule_access()
-                    
+
                     # Check if this box is already configured
                     await self.async_set_unique_id(box_gid)
                     self._abort_if_unique_id_configured()
 
                     # Create the config entry
-                    _LOGGER.info("Successfully configured Firewalla integration for %s", box_name)
+                    _LOGGER.info(
+                        "Successfully configured Firewalla integration for %s", box_name
+                    )
                     return self.async_create_entry(
                         title=box_name,
                         data={
@@ -221,15 +252,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Validate MSP URL format (mydomain.firewalla.net)."""
         if not msp_domain:
             return False
-        
+
         # Remove any protocol prefix if present
         if msp_domain.startswith(("http://", "https://")):
             msp_domain = msp_domain.split("://", 1)[1]
-        
+
         # Remove any trailing path
         if "/" in msp_domain:
             msp_domain = msp_domain.split("/", 1)[0]
-        
+
         # Check against pattern
         return bool(MSP_URL_PATTERN.match(msp_domain))
 
@@ -242,30 +273,46 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.debug("Creating MSP client for authentication test")
             session = async_get_clientsession(self.hass)
             client = FirewallaMSPClient(session, self._msp_domain, self._access_token)
-            
+
             _LOGGER.debug("Testing MSP API authentication")
             if not await client.authenticate():
                 _LOGGER.error("MSP API authentication failed - invalid credentials")
-                raise InvalidAuth("MSP API authentication failed - please check your access token")
-                
-            _LOGGER.info("MSP API authentication successful for domain: %s", self._msp_domain)
-            
+                raise InvalidAuth(
+                    "MSP API authentication failed - please check your access token"
+                )
+
+            _LOGGER.info(
+                "MSP API authentication successful for domain: %s", self._msp_domain
+            )
+
         except aiohttp.ClientConnectorError as err:
             _LOGGER.error("Cannot connect to MSP API at %s: %s", self._msp_domain, err)
-            raise CannotConnect(f"Cannot connect to MSP API at {self._msp_domain}: {err}") from err
+            raise CannotConnect(
+                f"Cannot connect to MSP API at {self._msp_domain}: {err}"
+            ) from err
         except aiohttp.ClientResponseError as err:
             if err.status == 401:
-                _LOGGER.error("MSP API authentication failed: Invalid access token (HTTP 401)")
+                _LOGGER.error(
+                    "MSP API authentication failed: Invalid access token (HTTP 401)"
+                )
                 raise InvalidAuth("Invalid access token") from err
             elif err.status == 403:
-                _LOGGER.error("MSP API access forbidden: Insufficient permissions (HTTP 403)")
-                raise InvalidAuth("Access forbidden - check your MSP account permissions") from err
+                _LOGGER.error(
+                    "MSP API access forbidden: Insufficient permissions (HTTP 403)"
+                )
+                raise InvalidAuth(
+                    "Access forbidden - check your MSP account permissions"
+                ) from err
             elif err.status >= 500:
                 _LOGGER.error("MSP API server error %d: %s", err.status, err.message)
-                raise CannotConnect(f"MSP API server error {err.status} - service may be temporarily unavailable") from err
+                raise CannotConnect(
+                    f"MSP API server error {err.status} - service may be temporarily unavailable"
+                ) from err
             else:
                 _LOGGER.error("MSP API returned error %d: %s", err.status, err.message)
-                raise CannotConnect(f"MSP API error {err.status}: {err.message}") from err
+                raise CannotConnect(
+                    f"MSP API error {err.status}: {err.message}"
+                ) from err
         except aiohttp.ClientError as err:
             _LOGGER.error("Network error connecting to MSP API: %s", err)
             raise CannotConnect(f"Network error connecting to MSP API: {err}") from err
@@ -274,7 +321,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             raise
         except Exception as err:
             _LOGGER.exception("Unexpected error during MSP authentication: %s", err)
-            raise InvalidAuth(f"Authentication failed due to unexpected error: {err}") from err
+            raise InvalidAuth(
+                f"Authentication failed due to unexpected error: {err}"
+            ) from err
 
     async def _get_available_boxes(self) -> None:
         """Get available Firewalla boxes from MSP account."""
@@ -284,19 +333,19 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             session = async_get_clientsession(self.hass)
             client = FirewallaMSPClient(session, self._msp_domain, self._access_token)
-            
+
             # Get list of boxes - for now we'll use rules endpoint to test access
             # since the official examples don't show a boxes endpoint
             _LOGGER.debug("Testing MSP API access by fetching rules")
             rules_response = await client.get_rules()
-            
+
             if rules_response is not None:
                 # If we can access rules, create a dummy box entry
                 # In a real implementation, we'd use the actual boxes endpoint
                 self._available_boxes = {
                     "default": {
                         "gid": "default",
-                        "name": f"Firewalla Box",
+                        "name": "Firewalla Box",
                         "model": "Unknown",
                         "online": True,
                     }
@@ -305,7 +354,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 _LOGGER.warning("No response from MSP API rules endpoint")
                 self._available_boxes = {}
-            
+
         except aiohttp.ClientError as err:
             _LOGGER.error("Cannot connect to MSP API: %s", err)
             raise CannotConnect(f"Cannot connect to MSP API: {err}") from err
@@ -321,56 +370,133 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             session = async_get_clientsession(self.hass)
             client = FirewallaMSPClient(session, self._msp_domain, self._access_token)
-            
+
             _LOGGER.debug("Testing rule access permissions")
             rules_response = await client.get_rules()
-            
+
             if rules_response is not None:
                 _LOGGER.info("Rule access test successful")
             else:
                 _LOGGER.error("Rule access test failed - no response")
-                raise RuleAccessFailed("Cannot access rules - check your MSP permissions")
-                
+                raise RuleAccessFailed(
+                    "Cannot access rules - check your MSP permissions"
+                )
+
         except aiohttp.ClientResponseError as err:
             if err.status == 403:
-                _LOGGER.error("Rule access forbidden: Insufficient permissions (HTTP 403)")
-                raise RuleAccessFailed("Access to rules forbidden - check your MSP account permissions") from err
+                _LOGGER.error(
+                    "Rule access forbidden: Insufficient permissions (HTTP 403)"
+                )
+                raise RuleAccessFailed(
+                    "Access to rules forbidden - check your MSP account permissions"
+                ) from err
             else:
-                _LOGGER.error("Rule access test failed with HTTP %d: %s", err.status, err.message)
-                raise RuleAccessFailed(f"Rule access test failed: HTTP {err.status}") from err
+                _LOGGER.error(
+                    "Rule access test failed with HTTP %d: %s", err.status, err.message
+                )
+                raise RuleAccessFailed(
+                    f"Rule access test failed: HTTP {err.status}"
+                ) from err
         except aiohttp.ClientError as err:
             _LOGGER.error("Network error during rule access test: %s", err)
-            raise CannotConnect(f"Network error during rule access test: {err}") from err
+            raise CannotConnect(
+                f"Network error during rule access test: {err}"
+            ) from err
         except Exception as err:
             _LOGGER.exception("Unexpected error during rule access test: %s", err)
-            raise RuleAccessFailed(f"Rule access test failed due to unexpected error: {err}") from err
+            raise RuleAccessFailed(
+                f"Rule access test failed due to unexpected error: {err}"
+            ) from err
+
+    async def async_step_reconfigure(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
+        """Handle reconfiguration to update MSP credentials."""
+        errors: Dict[str, str] = {}
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+
+        if user_input is not None:
+            msp_domain = user_input[CONF_MSP_URL].strip()
+            access_token = user_input[CONF_ACCESS_TOKEN].strip()
+
+            if not msp_domain or not self._validate_msp_url(msp_domain):
+                errors[CONF_MSP_URL] = "invalid_url_format"
+            elif not access_token or len(access_token) < 10:
+                errors[CONF_ACCESS_TOKEN] = "auth_failed"
+            else:
+                # Test the new credentials
+                try:
+                    session = async_get_clientsession(self.hass)
+                    client = FirewallaMSPClient(session, msp_domain, access_token)
+                    if await client.authenticate():
+                        return self.async_update_reload_and_abort(
+                            entry,
+                            data={
+                                **entry.data,
+                                CONF_MSP_URL: msp_domain,
+                                CONF_ACCESS_TOKEN: access_token,
+                            },
+                        )
+                    else:
+                        errors["base"] = "auth_failed"
+                except Exception:
+                    errors["base"] = "connection_failed"
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_MSP_URL,
+                        default=entry.data.get(CONF_MSP_URL, DEFAULT_MSP_URL_FORMAT),
+                    ): str,
+                    vol.Required(CONF_ACCESS_TOKEN): str,
+                }
+            ),
+            errors=errors,
+        )
 
     @staticmethod
     @config_entries.HANDLERS.register(DOMAIN)
     def async_get_options_flow(config_entry):
         """Create the options flow."""
-        return OptionsFlowHandler(config_entry)
+        return OptionsFlowHandler()
 
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for Firewalla integration."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
-
-    async def async_step_init(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
+    async def async_step_init(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
         """Manage the options."""
         if user_input is not None:
             # Parse the filter strings into lists
-            include_filters = self._parse_filter_string(user_input.get(CONF_INCLUDE_FILTERS, ""))
-            exclude_filters = self._parse_filter_string(user_input.get(CONF_EXCLUDE_FILTERS, ""))
-            
+            include_filters = self._parse_filter_string(
+                user_input.get(CONF_INCLUDE_FILTERS, "")
+            )
+            exclude_filters = self._parse_filter_string(
+                user_input.get(CONF_EXCLUDE_FILTERS, "")
+            )
+
             options_data = {
+                CONF_DASHBOARD_USERS: user_input.get(CONF_DASHBOARD_USERS, ""),
                 CONF_INCLUDE_FILTERS: include_filters,
                 CONF_EXCLUDE_FILTERS: exclude_filters,
+                CONF_BASE_POLL_INTERVAL: user_input.get(
+                    CONF_BASE_POLL_INTERVAL, DEFAULT_BASE_POLL_INTERVAL
+                ),
+                CONF_FULL_RULES_INTERVAL: user_input.get(
+                    CONF_FULL_RULES_INTERVAL, DEFAULT_FULL_RULES_INTERVAL
+                ),
+                CONF_DEVICES_INTERVAL: user_input.get(
+                    CONF_DEVICES_INTERVAL, DEFAULT_DEVICES_INTERVAL
+                ),
+                CONF_USERS_CACHE_TTL: user_input.get(
+                    CONF_USERS_CACHE_TTL, DEFAULT_USERS_CACHE_TTL
+                ),
             }
-            
+
             return self.async_create_entry(title="", data=options_data)
 
         # Get current options
@@ -382,24 +508,51 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         include_filters_str = "\n".join(include_filters) if include_filters else ""
         exclude_filters_str = "\n".join(exclude_filters) if exclude_filters else ""
 
+        dashboard_users = current_options.get(CONF_DASHBOARD_USERS, "")
+
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
                     vol.Optional(
+                        CONF_DASHBOARD_USERS,
+                        default=dashboard_users,
+                        description={"suggested_value": dashboard_users},
+                    ): str,
+                    vol.Optional(
                         CONF_INCLUDE_FILTERS,
                         default=include_filters_str,
-                        description={
-                            "suggested_value": include_filters_str
-                        }
+                        description={"suggested_value": include_filters_str},
                     ): str,
                     vol.Optional(
                         CONF_EXCLUDE_FILTERS,
                         default=exclude_filters_str,
-                        description={
-                            "suggested_value": exclude_filters_str
-                        }
+                        description={"suggested_value": exclude_filters_str},
                     ): str,
+                    vol.Optional(
+                        CONF_BASE_POLL_INTERVAL,
+                        default=current_options.get(
+                            CONF_BASE_POLL_INTERVAL, DEFAULT_BASE_POLL_INTERVAL
+                        ),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=30, max=300)),
+                    vol.Optional(
+                        CONF_FULL_RULES_INTERVAL,
+                        default=current_options.get(
+                            CONF_FULL_RULES_INTERVAL, DEFAULT_FULL_RULES_INTERVAL
+                        ),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=60, max=900)),
+                    vol.Optional(
+                        CONF_DEVICES_INTERVAL,
+                        default=current_options.get(
+                            CONF_DEVICES_INTERVAL, DEFAULT_DEVICES_INTERVAL
+                        ),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=60, max=600)),
+                    vol.Optional(
+                        CONF_USERS_CACHE_TTL,
+                        default=current_options.get(
+                            CONF_USERS_CACHE_TTL, DEFAULT_USERS_CACHE_TTL
+                        ),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=60, max=3600)),
                 }
             ),
             description_placeholders={
@@ -412,13 +565,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         """Parse a newline-separated filter string into a list."""
         if not filter_string or not filter_string.strip():
             return []
-        
+
         filters = []
-        for line in filter_string.strip().split('\n'):
+        for line in filter_string.strip().split("\n"):
             line = line.strip()
-            if line and not line.startswith('#'):  # Allow comments with #
+            if line and not line.startswith("#"):  # Allow comments with #
                 filters.append(line)
-        
+
         return filters
 
 
