@@ -25,6 +25,8 @@ TO_REDACT = {
     "publicIP",
 }
 
+EXCLUDED_OPTIONS = {"include_filters", "exclude_filters", "dashboard_users"}
+
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
@@ -41,12 +43,14 @@ async def async_get_config_entry_diagnostics(
         "version": box_info.get("version"),
     } if isinstance(box_info, dict) else {}
 
+    filtered_options = {
+        k: v for k, v in entry.options.items()
+        if k not in EXCLUDED_OPTIONS
+    }
+
     return {
         "entry": async_redact_data(dict(entry.data), TO_REDACT),
-        "options": {
-            k: v for k, v in entry.options.items()
-            if k not in ("include_filters", "exclude_filters", "dashboard_users")
-        },
+        "options": async_redact_data(filtered_options, TO_REDACT),
         "last_update_success": coordinator.last_update_success,
         "polling": {
             "base_poll_interval": coordinator._base_poll_interval,
@@ -57,7 +61,7 @@ async def async_get_config_entry_diagnostics(
         },
         "box_info": safe_box_info,
         "rule_count": data.get("rule_count"),
-        "group_count": len(data.get("groups", {})),
-        "time_limit_count": len(data.get("time_limits", {})),
+        "group_count": len(data.get("groups") or {}),
+        "time_limit_count": len(data.get("time_limits") or {}),
         "data_keys": sorted(data.keys()) if data else [],
     }
