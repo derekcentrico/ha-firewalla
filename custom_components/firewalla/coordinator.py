@@ -914,7 +914,10 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
             )
 
         # Peak detail fetch when traffic is interesting
-        peak_data = None
+        previous_peak = (
+            self.data.get("wan_throughput", {}).get("peak") if self.data else None
+        )
+        peak_data = previous_peak
         if (
             download_mbps >= WAN_PEAK_TRIGGER_MBPS
             or upload_mbps >= WAN_PEAK_TRIGGER_MBPS
@@ -924,16 +927,16 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
                     await self.api.get_flow_details(self.box_gid, begin_ts, end_ts)
                 )
                 peak_result = self._wan_peak_estimator.process_flows(detail_flows)
-                detail_dl_bytes = sum(
-                    max(int(f.get("download", 0)), 0)
-                    for f in detail_flows
-                    if isinstance(f, dict)
-                )
-                detail_ul_bytes = sum(
-                    max(int(f.get("upload", 0)), 0)
-                    for f in detail_flows
-                    if isinstance(f, dict)
-                )
+                detail_dl_bytes = 0
+                detail_ul_bytes = 0
+                for f in detail_flows:
+                    if not isinstance(f, dict):
+                        continue
+                    try:
+                        detail_dl_bytes += max(int(f.get("download", 0)), 0)
+                        detail_ul_bytes += max(int(f.get("upload", 0)), 0)
+                    except (TypeError, ValueError):
+                        continue
                 peak_data = {
                     **peak_result,
                     "detail_flow_count": len(detail_flows),

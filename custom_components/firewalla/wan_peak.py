@@ -13,6 +13,7 @@ than dividing total bytes by the 120-second sample window.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any
 
@@ -28,30 +29,25 @@ class WanPeakEstimator:
 
     def __init__(self) -> None:
         self._buckets: dict[int, dict[str, float]] = {}
-        self._fingerprints: dict[tuple, float] = {}
+        self._fingerprints: dict[bytes, float] = {}
 
     def _bucket_ts(self, ts: float) -> int:
         """Round a timestamp down to the nearest bucket boundary."""
         return int(ts) // WAN_PEAK_BUCKET_SECONDS * WAN_PEAK_BUCKET_SECONDS
 
-    def _flow_fingerprint(self, flow: dict) -> tuple:
+    def _flow_fingerprint(self, flow: dict) -> bytes:
         device = flow.get("device")
         device_id = device.get("id", "") if isinstance(device, dict) else ""
         source = flow.get("source")
         source_id = source.get("id", "") if isinstance(source, dict) else ""
         destination = flow.get("destination")
         dest_id = destination.get("id", "") if isinstance(destination, dict) else ""
-        return (
-            flow.get("gid", ""),
-            flow.get("ts", 0),
-            flow.get("duration", 0),
-            flow.get("protocol", ""),
-            device_id,
-            source_id,
-            dest_id,
-            flow.get("download", 0),
-            flow.get("upload", 0),
+        key = (
+            f"{flow.get('gid', '')}|{flow.get('ts', 0)}|{flow.get('duration', 0)}|"
+            f"{flow.get('protocol', '')}|{device_id}|{source_id}|{dest_id}|"
+            f"{flow.get('download', 0)}|{flow.get('upload', 0)}"
         )
+        return hashlib.md5(key.encode()).digest()
 
     def _allocate_flow(self, flow: dict) -> bool:
         """Allocate one flow into 5-second buckets. Returns False if skipped."""
@@ -71,7 +67,7 @@ class WanPeakEstimator:
             return False
         self._fingerprints[fp] = ts
 
-        flow_start = ts - duration
+        flow_start = max(ts - duration, ts - WAN_PEAK_RETENTION_SECONDS)
         dl_mbps = dl_bytes * 8 / duration / 1_000_000
         ul_mbps = ul_bytes * 8 / duration / 1_000_000
 
@@ -108,20 +104,11 @@ class WanPeakEstimator:
             if not isinstance(flow, dict):
                 skipped += 1
                 continue
-            before = set(self._buckets.keys())
-            ok = self._allocate_flow(flow)
-            if ok:
+            if self._allocate_flow(flow):
                 allocated += 1
-                touched_buckets.update(self._buckets.keys() - before)
-                for bts in self._buckets:
-                    if bts not in before or self._buckets[bts] != before:
-                        touched_buckets.add(bts)
             else:
                 skipped += 1
 
-        # Simpler: just mark all buckets modified by this batch
-        # (the set tracking above is an approximation; use all current buckets
-        # that could have been touched by the flow time range)
         if flows:
             try:
                 min_ts = min(
