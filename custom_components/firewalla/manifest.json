@@ -2,14 +2,14 @@
   "domain": "firewalla",
   "name": "Firewalla",
   "codeowners": [
-    "@djuntgen"
+    "@derekcentrico"
   ],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/djuntgen/firewalla-home-assistant",
+  "documentation": "https://github.com/derekcentrico/ha-firewalla",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/djuntgen/firewalla-home-assistant/issues",
+  "issue_tracker": "https://github.com/derekcentrico/ha-firewalla/issues",
   "requirements": [],
   "version": "1.1.0"
 }
