@@ -172,10 +172,8 @@ class TestFirewallaMSPClient:
         result = await client.get_rules("status:active")
 
         assert result == mock_api_responses["rules"]
-        # Verify query parameter was included in URL (url is a positional arg)
         call_args = mock_aiohttp_session.request.call_args
-        url_arg = call_args[0][1]  # second positional arg
-        assert "query=status:active" in url_arg
+        assert call_args.kwargs.get("params") == {"query": "status:active"}
 
     @pytest.mark.asyncio
     async def test_pause_rule_success(

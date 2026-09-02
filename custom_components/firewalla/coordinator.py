@@ -367,6 +367,7 @@ class FirewallaMSPClient:
         endpoint: str,
         data: Optional[Dict[str, Any]] = None,
         retry_auth: bool = True,
+        params: Optional[Dict[str, str]] = None,
         **kwargs: Any,
     ) -> Dict[str, Any] | list | None:
         """Make an authenticated request to the MSP API with retry logic."""
@@ -385,6 +386,7 @@ class FirewallaMSPClient:
                     url,
                     headers=headers,
                     json=data,
+                    params=params,
                     timeout=timeout,
                     **kwargs,
                 ) as response:
@@ -535,9 +537,7 @@ class FirewallaMSPClient:
     async def get_rules(self, query: Optional[str] = None) -> Dict[str, Any] | list:
         """Get rules from MSP API with optional query parameters."""
         endpoint = API_ENDPOINTS["rules"]
-        if query:
-            endpoint += f"?query={query}"
-        return await self._make_request("GET", endpoint)
+        return await self._make_request("GET", endpoint, params={"query": query} if query else None)
 
     async def pause_rule(self, rule_id: str) -> Dict[str, Any]:
         """Pause a rule via MSP API."""
@@ -553,6 +553,11 @@ class FirewallaMSPClient:
         """Get individual rule status for verification."""
         endpoint = API_ENDPOINTS["rule_detail"].format(rule_id=rule_id)
         return await self._make_request("GET", endpoint)
+
+    async def get_boxes(self) -> list:
+        """Get all boxes from MSP API."""
+        result = await self._make_request("GET", "/boxes")
+        return result if isinstance(result, list) else []
 
     async def get_devices(self) -> list:
         """Get all devices from MSP API."""

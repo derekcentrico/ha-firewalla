@@ -334,25 +334,26 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             session = async_get_clientsession(self.hass)
             client = FirewallaMSPClient(session, self._msp_domain, self._access_token)
 
-            # Get list of boxes - for now we'll use rules endpoint to test access
-            # since the official examples don't show a boxes endpoint
-            _LOGGER.debug("Testing MSP API access by fetching rules")
-            rules_response = await client.get_rules()
+            _LOGGER.debug("Fetching boxes from MSP API")
+            boxes = await client.get_boxes()
 
-            if rules_response is not None:
-                # If we can access rules, create a dummy box entry
-                # In a real implementation, we'd use the actual boxes endpoint
-                self._available_boxes = {
-                    "default": {
-                        "gid": "default",
-                        "name": "Firewalla Box",
-                        "model": "Unknown",
-                        "online": True,
+            if boxes:
+                self._available_boxes = {}
+                for box in boxes:
+                    if not isinstance(box, dict):
+                        continue
+                    gid = str(box.get("gid", "")).strip()
+                    if not gid:
+                        continue
+                    self._available_boxes[gid] = {
+                        "gid": gid,
+                        "name": box.get("name", f"Firewalla {box.get('model', 'Box')}"),
+                        "model": box.get("model", "Unknown"),
+                        "online": box.get("online", False),
                     }
-                }
-                _LOGGER.info("Successfully accessed MSP API rules endpoint")
+                _LOGGER.info("Found %d boxes in MSP account", len(self._available_boxes))
             else:
-                _LOGGER.warning("No response from MSP API rules endpoint")
+                _LOGGER.warning("No boxes returned from MSP API")
                 self._available_boxes = {}
 
         except aiohttp.ClientError as err:

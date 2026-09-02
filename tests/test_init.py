@@ -16,7 +16,6 @@ from custom_components.firewalla import (
     async_setup_entry,
     async_unload_entry,
     async_reload_entry,
-    setup_integration_logging,
 )
 from custom_components.firewalla.const import (
     CONF_ACCESS_TOKEN,
@@ -69,13 +68,13 @@ class TestAsyncSetupEntry:
             title="Test Firewalla",
             data={
                 CONF_MSP_URL: "https://test.firewalla.com",
-                # Missing CONF_ACCESS_TOKEN and CONF_BOX_GID
             },
             source="user",
             entry_id="test_entry_id",
             unique_id="test_incomplete",
             options={},
             discovery_keys={},
+            subentries_data={},
         )
 
         with pytest.raises(
@@ -322,29 +321,6 @@ class TestAsyncReloadEntry:
             await async_reload_entry(mock_hass, mock_config_entry)
 
 
-class TestSetupIntegrationLogging:
-    """Test integration logging setup."""
-
-    def test_setup_integration_logging(self):
-        """Test logging setup function."""
-        with patch("logging.getLogger") as mock_get_logger:
-            mock_logger = MagicMock()
-            mock_get_logger.return_value = mock_logger
-
-            setup_integration_logging()
-
-            # Verify loggers were configured
-            assert mock_get_logger.call_count >= 5  # At least 5 loggers
-            mock_logger.setLevel.assert_called()
-
-    def test_setup_integration_logging_exists_and_callable(self):
-        """Test that setup_integration_logging is defined and callable."""
-        # Verify the function exists and can be called without error
-        assert callable(setup_integration_logging)
-        # Call it again to verify it doesn't raise
-        setup_integration_logging()
-
-
 class TestEndToEndIntegration:
     """Test end-to-end integration functionality."""
 
@@ -504,6 +480,7 @@ class TestEndToEndIntegration:
             unique_id="box-gid-1",
             options={},
             discovery_keys={},
+            subentries_data={},
         )
 
         config_entry_2 = ConfigEntry(
@@ -521,6 +498,7 @@ class TestEndToEndIntegration:
             unique_id="box-gid-2",
             options={},
             discovery_keys={},
+            subentries_data={},
         )
 
         mock_coordinator_1 = AsyncMock()

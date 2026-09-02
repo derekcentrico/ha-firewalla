@@ -40,6 +40,9 @@ def mock_msp_client():
         mock_client = MagicMock()
         mock_client.authenticate = AsyncMock(return_value=True)
         mock_client.get_rules = AsyncMock(return_value=[])
+        mock_client.get_boxes = AsyncMock(return_value=[
+            {"gid": "default", "name": "Firewalla Box", "model": "gold", "online": True}
+        ])
         mock_client_class.return_value = mock_client
         yield mock_client
 
@@ -475,8 +478,8 @@ class TestConfigFlow:
 
         await flow._get_available_boxes()
 
-        # Should create default box entry
         assert "default" in flow._available_boxes
+        assert flow._available_boxes["default"]["model"] == "gold"
 
     @pytest.mark.asyncio
     async def test_test_rule_access_success(
