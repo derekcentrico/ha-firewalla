@@ -28,7 +28,12 @@ from .const import (
     MSP_API_V2_BASE,
     RETRY_ATTEMPTS,
     RETRY_DELAYS,
+    WAN_PEAK_MAX_PAGES,
+    WAN_PEAK_MIN_FLOW_BYTES,
+    WAN_PEAK_PAGE_LIMIT,
+    WAN_PEAK_TRIGGER_MBPS,
 )
+from .wan_peak import WanPeakEstimator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -591,6 +596,44 @@ class FirewallaMSPClient:
             },
         )
 
+    async def get_flow_details(
+        self, box_gid: str, begin: float, end: float
+    ) -> tuple[list[dict], int, bool]:
+        """Fetch ungrouped flow details with pagination."""
+        query = (
+            f"box.id:{box_gid} "
+            f"ts:{int(begin)}-{int(end)} "
+            f"-direction:local status:ok total:>1MB"
+        )
+        all_flows: list[dict] = []
+        cursor = None
+        pages = 0
+        truncated = False
+        while pages < WAN_PEAK_MAX_PAGES:
+            params: dict[str, str] = {
+                "query": query,
+                "limit": str(WAN_PEAK_PAGE_LIMIT),
+            }
+            if cursor:
+                params["cursor"] = cursor
+            response = await self._make_request(
+                "GET", API_ENDPOINTS["flows"], params=params
+            )
+            if not isinstance(response, dict):
+                break
+            results = response.get("results", [])
+            if isinstance(results, list):
+                all_flows.extend(r for r in results if isinstance(r, dict))
+            next_cursor = response.get("next_cursor")
+            pages += 1
+            if not next_cursor:
+                break
+            cursor = next_cursor
+        else:
+            if cursor:
+                truncated = True
+        return all_flows, pages, truncated
+
     async def get_devices(self) -> list:
         """Get all devices from MSP API."""
         return await self._make_request("GET", API_ENDPOINTS["devices"])
@@ -664,6 +707,7 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
         self._wan_download_capacity: float = max(0.0, float(wan_download_capacity))
         self._wan_upload_capacity: float = max(0.0, float(wan_upload_capacity))
         self._wan_last_sample_end: float = 0
+        self._wan_peak_estimator = WanPeakEstimator()
 
         super().__init__(
             hass,
@@ -867,6 +911,76 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
         if self._wan_upload_capacity > 0:
             throughput["upload_utilization"] = round(
                 upload_mbps / self._wan_upload_capacity * 100, 1
+            )
+
+        # Peak detail fetch when traffic is interesting
+        peak_data = None
+        if (
+            download_mbps >= WAN_PEAK_TRIGGER_MBPS
+            or upload_mbps >= WAN_PEAK_TRIGGER_MBPS
+        ):
+            try:
+                detail_flows, detail_pages, detail_truncated = (
+                    await self.api.get_flow_details(self.box_gid, begin_ts, end_ts)
+                )
+                peak_result = self._wan_peak_estimator.process_flows(detail_flows)
+                detail_dl_bytes = sum(
+                    max(int(f.get("download", 0)), 0)
+                    for f in detail_flows
+                    if isinstance(f, dict)
+                )
+                detail_ul_bytes = sum(
+                    max(int(f.get("upload", 0)), 0)
+                    for f in detail_flows
+                    if isinstance(f, dict)
+                )
+                peak_data = {
+                    **peak_result,
+                    "detail_flow_count": len(detail_flows),
+                    "detail_pages": detail_pages,
+                    "detail_truncated": detail_truncated,
+                    "download_coverage_pct": (
+                        round(detail_dl_bytes / download_bytes * 100, 1)
+                        if download_bytes > 0
+                        else None
+                    ),
+                    "upload_coverage_pct": (
+                        round(detail_ul_bytes / upload_bytes * 100, 1)
+                        if upload_bytes > 0
+                        else None
+                    ),
+                    "min_flow_bytes": WAN_PEAK_MIN_FLOW_BYTES,
+                }
+            except ConfigEntryAuthFailed:
+                raise
+            except Exception as err:
+                _LOGGER.debug("WAN peak detail fetch failed: %s", err)
+
+        self._wan_peak_estimator.prune(end_ts)
+
+        throughput["peak"] = peak_data
+
+        if self._wan_download_capacity > 0:
+            throughput["download_near_capacity_minutes"] = (
+                self._wan_peak_estimator.near_capacity_minutes(
+                    "download", self._wan_download_capacity
+                )
+            )
+            throughput["download_capacity_distribution"] = (
+                self._wan_peak_estimator.capacity_distribution(
+                    "download", self._wan_download_capacity
+                )
+            )
+        if self._wan_upload_capacity > 0:
+            throughput["upload_near_capacity_minutes"] = (
+                self._wan_peak_estimator.near_capacity_minutes(
+                    "upload", self._wan_upload_capacity
+                )
+            )
+            throughput["upload_capacity_distribution"] = (
+                self._wan_peak_estimator.capacity_distribution(
+                    "upload", self._wan_upload_capacity
+                )
             )
 
         return throughput

@@ -12,6 +12,7 @@ from custom_components.firewalla.sensor import (
     FirewallaWanSensor,
     FirewallaWanUtilizationSensor,
 )
+from custom_components.firewalla.wan_peak import WanPeakEstimator
 
 
 def _wan_coordinator(wan_data: dict | None = None) -> SimpleNamespace:
@@ -134,6 +135,7 @@ class TestFetchWanThroughput:
         coord._wan_last_sample_end = 0
         coord._wan_download_capacity = 2400.0
         coord._wan_upload_capacity = 880.0
+        coord._wan_peak_estimator = WanPeakEstimator()
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(coord, 1000.0)
@@ -159,6 +161,7 @@ class TestFetchWanThroughput:
         coord._wan_last_sample_end = 0
         coord._wan_download_capacity = 0
         coord._wan_upload_capacity = 0
+        coord._wan_peak_estimator = WanPeakEstimator()
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(coord, 1000.0)
@@ -199,6 +202,7 @@ class TestFetchWanThroughput:
         coord._wan_last_sample_end = 0
         coord._wan_download_capacity = 0
         coord._wan_upload_capacity = 0
+        coord._wan_peak_estimator = WanPeakEstimator()
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(coord, 1000.0)

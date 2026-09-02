@@ -26,6 +26,7 @@ from .const import (
     DOMAIN,
     ENTITY_ID_FORMATS,
     SENSOR_ATTRIBUTES,
+    WAN_PEAK_BUCKET_SECONDS,
 )
 from .coordinator import FirewallaDataUpdateCoordinator
 
@@ -67,6 +68,17 @@ async def async_setup_entry(
             entities.append(FirewallaWanUtilizationSensor(coordinator, "download"))
         if getattr(coordinator, "_wan_upload_capacity", 0) > 0:
             entities.append(FirewallaWanUtilizationSensor(coordinator, "upload"))
+
+        # WAN peak estimate sensors (always created)
+        entities.append(FirewallaWanPeakSensor(coordinator, "download"))
+        entities.append(FirewallaWanPeakSensor(coordinator, "upload"))
+        entities.append(FirewallaWanPeakSensor(coordinator, "total"))
+
+        # WAN near-capacity sensors (only when capacity is configured)
+        if getattr(coordinator, "_wan_download_capacity", 0) > 0:
+            entities.append(FirewallaWanNearCapacitySensor(coordinator, "download"))
+        if getattr(coordinator, "_wan_upload_capacity", 0) > 0:
+            entities.append(FirewallaWanNearCapacitySensor(coordinator, "upload"))
 
         if entities:
             async_add_entities(entities)
@@ -603,4 +615,153 @@ class FirewallaWanUtilizationSensor(CoordinatorEntity, SensorEntity):
         return {
             "capacity_mbps": wan.get(f"{self._direction}_capacity_mbps", 0),
             "current_mbps": wan.get(f"{self._direction}_mbps", 0),
+        }
+
+
+class FirewallaWanPeakSensor(CoordinatorEntity, SensorEntity):
+    """Estimated peak WAN throughput from completed-flow reconstruction."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.DATA_RATE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfDataRate.MEGABITS_PER_SECOND
+    _attr_suggested_display_precision = 1
+    _unrecorded_attributes = frozenset(
+        {
+            "bucket_seconds",
+            "estimation_method",
+            "detail_flow_count",
+            "detail_pages",
+            "detail_truncated",
+            "min_flow_bytes",
+        }
+    )
+
+    _LABELS = {
+        "download": ("WAN Download Peak Estimate", "mdi:arrow-down-bold-circle"),
+        "upload": ("WAN Upload Peak Estimate", "mdi:arrow-up-bold-circle"),
+        "total": ("WAN Total Peak Estimate", "mdi:arrow-expand-vertical"),
+    }
+
+    def __init__(
+        self, coordinator: FirewallaDataUpdateCoordinator, direction: str
+    ) -> None:
+        super().__init__(coordinator)
+        self._direction = direction
+        label, icon = self._LABELS[direction]
+        self._attr_unique_id = f"firewalla_{coordinator.box_gid}_wan_{direction}_peak"
+        self._attr_name = label
+        self._attr_icon = icon
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.box_gid)},
+            name=f"Firewalla Box {coordinator.box_gid[:8]}",
+            manufacturer=DEVICE_MANUFACTURER,
+        )
+
+    def _get_peak_data(self) -> dict[str, Any] | None:
+        if not self.coordinator.data:
+            return None
+        wan = self.coordinator.data.get("wan_throughput")
+        if not isinstance(wan, dict):
+            return None
+        peak = wan.get("peak")
+        return peak if isinstance(peak, dict) else None
+
+    @property
+    def native_value(self) -> float | None:
+        peak = self._get_peak_data()
+        if not peak or f"{self._direction}_peak_mbps" not in peak:
+            return None
+        return peak[f"{self._direction}_peak_mbps"]
+
+    @property
+    def available(self) -> bool:
+        peak = self._get_peak_data()
+        return (
+            self.coordinator.last_update_success
+            and isinstance(peak, dict)
+            and f"{self._direction}_peak_mbps" in peak
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        peak = self._get_peak_data()
+        if not peak:
+            return {}
+        ts_key = f"{self._direction}_peak_timestamp"
+        if self._direction == "total":
+            coverage = None
+        else:
+            coverage = peak.get(f"{self._direction}_coverage_pct")
+        return {
+            "peak_timestamp": peak.get(ts_key),
+            "bucket_seconds": peak.get("bucket_seconds", WAN_PEAK_BUCKET_SECONDS),
+            "estimation_method": peak.get("estimation_method", "completed_flows"),
+            "coverage_percent": coverage,
+            "detail_flow_count": peak.get("detail_flow_count", 0),
+            "detail_pages": peak.get("detail_pages", 0),
+            "detail_truncated": peak.get("detail_truncated", False),
+            "min_flow_bytes": peak.get("min_flow_bytes", 0),
+        }
+
+
+class FirewallaWanNearCapacitySensor(CoordinatorEntity, SensorEntity):
+    """Estimated minutes near WAN capacity in the preceding 24 hours."""
+
+    _attr_has_entity_name = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "min"
+    _attr_suggested_display_precision = 1
+
+    def __init__(
+        self, coordinator: FirewallaDataUpdateCoordinator, direction: str
+    ) -> None:
+        super().__init__(coordinator)
+        self._direction = direction
+        self._attr_unique_id = (
+            f"firewalla_{coordinator.box_gid}_wan_{direction}_near_capacity"
+        )
+        self._attr_name = f"WAN {direction.title()} Near Capacity"
+        self._attr_icon = "mdi:speedometer-slow"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.box_gid)},
+            name=f"Firewalla Box {coordinator.box_gid[:8]}",
+            manufacturer=DEVICE_MANUFACTURER,
+        )
+
+    def _get_wan_data(self) -> dict[str, Any] | None:
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get("wan_throughput")
+
+    @property
+    def native_value(self) -> float | None:
+        wan = self._get_wan_data()
+        if not isinstance(wan, dict):
+            return None
+        key = f"{self._direction}_near_capacity_minutes"
+        return wan.get(key)
+
+    @property
+    def available(self) -> bool:
+        wan = self._get_wan_data()
+        key = f"{self._direction}_near_capacity_minutes"
+        return (
+            self.coordinator.last_update_success
+            and isinstance(wan, dict)
+            and key in wan
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        wan = self._get_wan_data()
+        if not isinstance(wan, dict):
+            return {}
+        capacity = getattr(self.coordinator, f"_wan_{self._direction}_capacity", 0)
+        dist_key = f"{self._direction}_capacity_distribution"
+        dist = wan.get(dist_key, {})
+        return {
+            "capacity_mbps": capacity,
+            "threshold_pct": 90,
+            **dist,
         }

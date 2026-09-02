@@ -37,6 +37,8 @@ Firewalla is great at managing your network, but checking time limits and toggli
 - **Optimistic state updates** — UI reflects toggles immediately, confirmed on next poll
 - **WAN throughput sensors** — sampled download/upload Mbps from the flows endpoint on a separate 120-second cycle
 - **WAN utilization sensors** — percentage of provisioned capacity in use (configure your WAN speed in options)
+- **WAN peak estimate sensors** — reconstructed 5-second bandwidth peaks from completed flow details, detecting bursts that 120-second averages smooth away
+- **WAN near-capacity sensors** — estimated minutes per 24 hours at 90%+ of provisioned WAN capacity, with distribution at 50/75/90/95% thresholds
 - **Split-polling** — time-sensitive data polled frequently; bulk data less often
 - **Configurable polling intervals** — tune API call frequency via integration options
 - **Dynamic naming** — all entity names derived from API data, no hardcoded strings
@@ -141,6 +143,16 @@ All entity names are derived from API data. Users can override display names via
 | WAN Upload Utilization | Static | % of provisioned capacity | capacity_mbps, current_mbps |
 
 WAN throughput sensors query the `/v2/flows` endpoint every 120 seconds (configurable) and calculate average Mbps over the sample window. Utilization sensors only appear when you configure a provisioned WAN capacity in the integration options.
+
+| WAN Download Peak Estimate | Static | Estimated peak Mbps (5s bucket) | peak_timestamp, coverage_percent, detail_flow_count, detail_truncated |
+| WAN Upload Peak Estimate | Static | Estimated peak Mbps (5s bucket) | peak_timestamp, coverage_percent, detail_flow_count, detail_truncated |
+| WAN Total Peak Estimate | Static | Estimated peak Mbps (5s bucket) | peak_timestamp, detail_flow_count, detail_truncated |
+| WAN Download Near Capacity | Static | Minutes at >=90% capacity (24h) | capacity_mbps, threshold_pct, capacity_distribution |
+| WAN Upload Near Capacity | Static | Minutes at >=90% capacity (24h) | capacity_mbps, threshold_pct, capacity_distribution |
+
+Peak estimate sensors reconstruct short-duration bandwidth bursts from completed flow records. When the 120-second average exceeds 25 Mbps, the integration fetches individual flow details and allocates each flow's bytes across 5-second buckets based on its duration. Concurrent flows sharing a time window are summed, which detects aggregate WAN demand that individual-flow or 120-second averages would smooth away. Peak values may appear in HA after the real event occurred because Firewalla reports a flow only after it ends. The `peak_timestamp` attribute identifies when the reconstructed traffic happened.
+
+Near-capacity sensors estimate how many minutes in the preceding 24 hours your WAN operated at 90% or more of the configured provisioned capacity. The `capacity_distribution` attribute breaks this down further with bucket counts at 50%, 75%, 90%, and 95% thresholds. These sensors only appear when you configure a WAN capacity in the integration options.
 
 ### Binary Sensors
 

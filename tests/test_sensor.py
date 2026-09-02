@@ -265,7 +265,7 @@ class TestAsyncSetupEntry:
         async_add_entities.assert_called_once()
         entities = async_add_entities.call_args[0][0]
 
-        assert len(entities) == 4
+        assert len(entities) == 7
         assert isinstance(entities[0], FirewallaRulesSensor)
 
     @pytest.mark.asyncio
@@ -300,7 +300,7 @@ class TestAsyncSetupEntry:
         # WAN sensors still created even when rules sensor fails
         async_add_entities.assert_called_once()
         entities = async_add_entities.call_args[0][0]
-        assert len(entities) == 3
+        assert len(entities) == 6
 
 
 class TestFirewallaTimeLimitSensor:

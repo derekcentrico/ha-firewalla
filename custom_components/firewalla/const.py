@@ -98,6 +98,14 @@ DEFAULT_USERS_CACHE_TTL = 1800  # seconds — user data cache (default 30 min)
 DEFAULT_WAN_SAMPLE_INTERVAL = 120  # seconds — WAN flow bandwidth sample
 DEFAULT_WAN_DOWNLOAD_CAPACITY = 0  # Mbps — 0 disables utilization sensors
 DEFAULT_WAN_UPLOAD_CAPACITY = 0  # Mbps — 0 disables utilization sensors
+
+# WAN peak estimator
+WAN_PEAK_BUCKET_SECONDS = 5
+WAN_PEAK_RETENTION_SECONDS = 86400
+WAN_PEAK_TRIGGER_MBPS = 25
+WAN_PEAK_MIN_FLOW_BYTES = 1_000_000
+WAN_PEAK_PAGE_LIMIT = 500
+WAN_PEAK_MAX_PAGES = 5
 # Timelimit-only rules are fetched every base poll between full refreshes
 
 # Authentication
