@@ -547,7 +547,9 @@ class FirewallaMSPClient:
     async def get_rules(self, query: Optional[str] = None) -> Dict[str, Any] | list:
         """Get rules from MSP API with optional query parameters."""
         endpoint = API_ENDPOINTS["rules"]
-        return await self._make_request("GET", endpoint, params={"query": query} if query else None)
+        return await self._make_request(
+            "GET", endpoint, params={"query": query} if query else None
+        )
 
     async def pause_rule(self, rule_id: str) -> Dict[str, Any]:
         """Pause a rule via MSP API."""
@@ -576,11 +578,9 @@ class FirewallaMSPClient:
         _LOGGER.warning("Unexpected boxes response type: %s", type(result).__name__)
         return []
 
-    async def get_flow_bandwidth(
-        self, box_gid: str, begin: float, end: float
-    ) -> dict:
+    async def get_flow_bandwidth(self, box_gid: str, begin: float, end: float) -> dict:
         """Fetch aggregated flow data for a box over a time window."""
-        query = f"box.id:{box_gid} ts:{int(begin)}-{int(end)}"
+        query = f"box.id:{box_gid} ts:{int(begin)}-{int(end)} -direction:local"
         return await self._make_request(
             "GET",
             API_ENDPOINTS["flows"],
@@ -757,7 +757,11 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
 
             # WAN throughput sampling on its own time-based cycle
             wan_throughput = self.data.get("wan_throughput") if self.data else None
-            elapsed_since_wan = now - self._wan_last_sample_end if self._wan_last_sample_end else float("inf")
+            elapsed_since_wan = (
+                now - self._wan_last_sample_end
+                if self._wan_last_sample_end
+                else float("inf")
+            )
             if elapsed_since_wan >= self._wan_sample_interval or wan_throughput is None:
                 wan_throughput = await self._fetch_wan_throughput(now)
 
@@ -806,7 +810,11 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
         """Sample WAN bandwidth from the flows endpoint."""
         sample_seconds = self._wan_sample_interval
         end_ts = now
-        begin_ts = self._wan_last_sample_end if self._wan_last_sample_end else now - sample_seconds
+        begin_ts = (
+            self._wan_last_sample_end
+            if self._wan_last_sample_end
+            else now - sample_seconds
+        )
         actual_window = max(end_ts - begin_ts, 1.0)
 
         try:
@@ -854,11 +862,11 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
 
         if self._wan_download_capacity > 0:
             throughput["download_utilization"] = round(
-                min(download_mbps / self._wan_download_capacity * 100, 100.0), 1
+                download_mbps / self._wan_download_capacity * 100, 1
             )
         if self._wan_upload_capacity > 0:
             throughput["upload_utilization"] = round(
-                min(upload_mbps / self._wan_upload_capacity * 100, 100.0), 1
+                upload_mbps / self._wan_upload_capacity * 100, 1
             )
 
         return throughput

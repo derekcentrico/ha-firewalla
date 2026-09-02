@@ -10,8 +10,8 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfDataRate
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfDataRate
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er

@@ -360,7 +360,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "model": box.get("model", "Unknown"),
                         "online": box.get("online", False),
                     }
-                _LOGGER.info("Found %d boxes in MSP account", len(self._available_boxes))
+                _LOGGER.info(
+                    "Found %d boxes in MSP account", len(self._available_boxes)
+                )
             else:
                 _LOGGER.warning("No boxes returned from MSP API")
                 self._available_boxes = {}

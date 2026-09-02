@@ -47,15 +47,18 @@ async def async_get_config_entry_diagnostics(
     data = coordinator.data or {}
 
     box_info = data.get("box_info", {})
-    safe_box_info = {
-        "model": box_info.get("model"),
-        "online": box_info.get("online"),
-        "version": box_info.get("version"),
-    } if isinstance(box_info, dict) else {}
+    safe_box_info = (
+        {
+            "model": box_info.get("model"),
+            "online": box_info.get("online"),
+            "version": box_info.get("version"),
+        }
+        if isinstance(box_info, dict)
+        else {}
+    )
 
     filtered_options = {
-        k: v for k, v in entry.options.items()
-        if k not in EXCLUDED_OPTIONS
+        k: v for k, v in entry.options.items() if k not in EXCLUDED_OPTIONS
     }
 
     return {

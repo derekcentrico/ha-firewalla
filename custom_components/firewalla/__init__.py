@@ -472,5 +472,3 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         "Reloading Firewalla rule management integration for entry %s", entry.entry_id
     )
     await hass.config_entries.async_reload(entry.entry_id)
-
-
