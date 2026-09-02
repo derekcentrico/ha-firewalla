@@ -8,13 +8,17 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_ACCESS_TOKEN, DOMAIN
+from .const import CONF_ACCESS_TOKEN, CONF_BOX_GID, CONF_MSP_URL, DOMAIN
 
 TO_REDACT = {
     CONF_ACCESS_TOKEN,
+    CONF_BOX_GID,
+    CONF_MSP_URL,
     "access_token",
     "token",
     "gid",
+    "box_gid",
+    "msp_url",
     "name",
     "ip",
     "mac",
