@@ -659,11 +659,8 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
         self._cached_full_rules: dict[str, Any] = {}
         self._poll_count: int = 0
 
-        # WAN throughput sampling
+        # WAN throughput sampling (time-based, not poll-count-based)
         self._wan_sample_interval: int = max(120, wan_sample_interval)
-        self._wan_every: int = max(
-            1, self._wan_sample_interval // self._base_poll_interval
-        )
         self._wan_download_capacity: float = max(0.0, float(wan_download_capacity))
         self._wan_upload_capacity: float = max(0.0, float(wan_upload_capacity))
         self._wan_last_sample_end: float = 0
@@ -758,13 +755,10 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
 
             time_limits_data = _build_time_limits(users_list, rules_data)
 
-            # WAN throughput sampling on its own cycle
+            # WAN throughput sampling on its own time-based cycle
             wan_throughput = self.data.get("wan_throughput") if self.data else None
-            is_wan_poll = (
-                self._poll_count % self._wan_every == 0
-                or wan_throughput is None
-            )
-            if is_wan_poll:
+            elapsed_since_wan = now - self._wan_last_sample_end if self._wan_last_sample_end else float("inf")
+            if elapsed_since_wan >= self._wan_sample_interval or wan_throughput is None:
                 wan_throughput = await self._fetch_wan_throughput(now)
 
             processed_data = {
@@ -817,6 +811,8 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
 
         try:
             response = await self.api.get_flow_bandwidth(self.box_gid, begin_ts, end_ts)
+        except ConfigEntryAuthFailed:
+            raise
         except Exception as err:
             _LOGGER.debug("WAN throughput fetch failed: %s", err)
             return self.data.get("wan_throughput", {}) if self.data else {}

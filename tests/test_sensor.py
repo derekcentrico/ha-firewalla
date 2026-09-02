@@ -265,7 +265,7 @@ class TestAsyncSetupEntry:
         async_add_entities.assert_called_once()
         entities = async_add_entities.call_args[0][0]
 
-        assert len(entities) == 1
+        assert len(entities) == 4
         assert isinstance(entities[0], FirewallaRulesSensor)
 
     @pytest.mark.asyncio
@@ -297,8 +297,10 @@ class TestAsyncSetupEntry:
         ):
             await async_setup_entry(mock_hass, mock_config_entry, async_add_entities)
 
-        # Should still be called with empty list (no True argument)
-        async_add_entities.assert_called_once_with([])
+        # WAN sensors still created even when rules sensor fails
+        async_add_entities.assert_called_once()
+        entities = async_add_entities.call_args[0][0]
+        assert len(entities) == 3
 
 
 class TestFirewallaTimeLimitSensor:

@@ -32,7 +32,17 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+
+    if coordinator is None:
+        return {
+            "entry": async_redact_data(dict(entry.data), TO_REDACT),
+            "options": async_redact_data(
+                {k: v for k, v in entry.options.items() if k not in EXCLUDED_OPTIONS},
+                TO_REDACT,
+            ),
+            "coordinator_loaded": False,
+        }
 
     data = coordinator.data or {}
 

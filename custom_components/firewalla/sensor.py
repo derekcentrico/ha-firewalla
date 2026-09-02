@@ -60,15 +60,13 @@ async def async_setup_entry(
             _LOGGER.error("Error creating rules summary sensor: %s", err)
 
         # WAN throughput sensors
-        wan_data = coordinator.data.get("wan_throughput") if coordinator.data else None
-        if isinstance(wan_data, dict):
-            entities.append(FirewallaWanSensor(coordinator, "download"))
-            entities.append(FirewallaWanSensor(coordinator, "upload"))
-            entities.append(FirewallaWanSensor(coordinator, "total"))
-            if wan_data.get("download_capacity_mbps", 0) > 0:
-                entities.append(FirewallaWanUtilizationSensor(coordinator, "download"))
-            if wan_data.get("upload_capacity_mbps", 0) > 0:
-                entities.append(FirewallaWanUtilizationSensor(coordinator, "upload"))
+        entities.append(FirewallaWanSensor(coordinator, "download"))
+        entities.append(FirewallaWanSensor(coordinator, "upload"))
+        entities.append(FirewallaWanSensor(coordinator, "total"))
+        if getattr(coordinator, "_wan_download_capacity", 0) > 0:
+            entities.append(FirewallaWanUtilizationSensor(coordinator, "download"))
+        if getattr(coordinator, "_wan_upload_capacity", 0) > 0:
+            entities.append(FirewallaWanUtilizationSensor(coordinator, "upload"))
 
         if entities:
             async_add_entities(entities)
@@ -527,14 +525,17 @@ class FirewallaWanSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         wan = self._get_wan_data()
-        if not wan:
+        if not wan or f"{self._direction}_mbps" not in wan:
             return None
         return wan.get(f"{self._direction}_mbps")
 
     @property
     def available(self) -> bool:
+        wan = self._get_wan_data()
         return (
-            self.coordinator.last_update_success and self._get_wan_data() is not None
+            self.coordinator.last_update_success
+            and isinstance(wan, dict)
+            and f"{self._direction}_mbps" in wan
         )
 
     @property
