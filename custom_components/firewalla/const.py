@@ -15,6 +15,9 @@ CONF_BASE_POLL_INTERVAL = "base_poll_interval"
 CONF_FULL_RULES_INTERVAL = "full_rules_interval"
 CONF_DEVICES_INTERVAL = "devices_interval"
 CONF_USERS_CACHE_TTL = "users_cache_ttl"
+CONF_WAN_SAMPLE_INTERVAL = "wan_sample_interval"
+CONF_WAN_DOWNLOAD_CAPACITY = "wan_download_capacity"
+CONF_WAN_UPLOAD_CAPACITY = "wan_upload_capacity"
 
 # Default MSP URL format (user should replace 'mydomain' with their actual domain)
 DEFAULT_MSP_URL_FORMAT = "mydomain.firewalla.net"
@@ -32,6 +35,7 @@ API_ENDPOINTS = {
     "rule_detail": "/rules/{rule_id}",
     "devices": "/devices",
     "users": "/users",
+    "flows": "/flows",
     # V1 endpoints (legacy, for fallback)
     "legacy_rules": "/rule/list",
 }
@@ -91,6 +95,9 @@ DEFAULT_BASE_POLL_INTERVAL = 45  # seconds — base coordinator poll cycle
 DEFAULT_FULL_RULES_INTERVAL = 300  # seconds — full rules refresh (default 5 min)
 DEFAULT_DEVICES_INTERVAL = 600  # seconds — device list refresh (default 10 min)
 DEFAULT_USERS_CACHE_TTL = 1800  # seconds — user data cache (default 30 min)
+DEFAULT_WAN_SAMPLE_INTERVAL = 120  # seconds — WAN flow bandwidth sample
+DEFAULT_WAN_DOWNLOAD_CAPACITY = 0  # Mbps — 0 disables utilization sensors
+DEFAULT_WAN_UPLOAD_CAPACITY = 0  # Mbps — 0 disables utilization sensors
 # Timelimit-only rules are fetched every base poll between full refreshes
 
 # Authentication

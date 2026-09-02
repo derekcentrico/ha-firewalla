@@ -21,6 +21,9 @@ from .const import (
     DEFAULT_DEVICES_INTERVAL,
     DEFAULT_FULL_RULES_INTERVAL,
     DEFAULT_USERS_CACHE_TTL,
+    DEFAULT_WAN_DOWNLOAD_CAPACITY,
+    DEFAULT_WAN_SAMPLE_INTERVAL,
+    DEFAULT_WAN_UPLOAD_CAPACITY,
     DOMAIN,
     MSP_API_V2_BASE,
     RETRY_ATTEMPTS,
@@ -410,12 +413,19 @@ class FirewallaMSPClient:
                             _LOGGER.error("MSP API authentication failed (HTTP 401)")
                             raise ConfigEntryAuthFailed("MSP API authentication failed")
 
-                    # Handle rate limiting
+                    # Handle rate limiting with Retry-After
                     if response.status == 429:
                         if attempt < RETRY_ATTEMPTS - 1:
-                            wait_time = RETRY_DELAYS[
-                                min(attempt, len(RETRY_DELAYS) - 1)
-                            ]
+                            retry_after = response.headers.get("Retry-After")
+                            try:
+                                wait_time = int(retry_after) if retry_after else None
+                            except (ValueError, TypeError):
+                                wait_time = None
+                            if wait_time is None or wait_time < 1:
+                                wait_time = RETRY_DELAYS[
+                                    min(attempt, len(RETRY_DELAYS) - 1)
+                                ]
+                            wait_time = min(wait_time, 120)
                             _LOGGER.warning(
                                 "MSP API rate limited (HTTP 429), waiting %d seconds before retry",
                                 wait_time,
@@ -566,6 +576,21 @@ class FirewallaMSPClient:
         _LOGGER.warning("Unexpected boxes response type: %s", type(result).__name__)
         return []
 
+    async def get_flow_bandwidth(
+        self, box_gid: str, begin: float, end: float
+    ) -> dict:
+        """Fetch aggregated flow data for a box over a time window."""
+        query = f"box.id:{box_gid} ts:{int(begin)}-{int(end)}"
+        return await self._make_request(
+            "GET",
+            API_ENDPOINTS["flows"],
+            params={
+                "query": query,
+                "groupBy": "box",
+                "limit": "10",
+            },
+        )
+
     async def get_devices(self) -> list:
         """Get all devices from MSP API."""
         return await self._make_request("GET", API_ENDPOINTS["devices"])
@@ -597,6 +622,9 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
         full_rules_interval: int = DEFAULT_FULL_RULES_INTERVAL,
         devices_interval: int = DEFAULT_DEVICES_INTERVAL,
         users_cache_ttl: int = DEFAULT_USERS_CACHE_TTL,
+        wan_sample_interval: int = DEFAULT_WAN_SAMPLE_INTERVAL,
+        wan_download_capacity: float = DEFAULT_WAN_DOWNLOAD_CAPACITY,
+        wan_upload_capacity: float = DEFAULT_WAN_UPLOAD_CAPACITY,
     ) -> None:
         """Initialize the coordinator."""
         self.api = FirewallaMSPClient(session, msp_domain, access_token)
@@ -630,6 +658,15 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
         self._cached_devices: list = []
         self._cached_full_rules: dict[str, Any] = {}
         self._poll_count: int = 0
+
+        # WAN throughput sampling
+        self._wan_sample_interval: int = max(120, wan_sample_interval)
+        self._wan_every: int = max(
+            1, self._wan_sample_interval // self._base_poll_interval
+        )
+        self._wan_download_capacity: float = max(0.0, float(wan_download_capacity))
+        self._wan_upload_capacity: float = max(0.0, float(wan_upload_capacity))
+        self._wan_last_sample_end: float = 0
 
         super().__init__(
             hass,
@@ -721,6 +758,15 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
 
             time_limits_data = _build_time_limits(users_list, rules_data)
 
+            # WAN throughput sampling on its own cycle
+            wan_throughput = self.data.get("wan_throughput") if self.data else None
+            is_wan_poll = (
+                self._poll_count % self._wan_every == 0
+                or wan_throughput is None
+            )
+            if is_wan_poll:
+                wan_throughput = await self._fetch_wan_throughput(now)
+
             processed_data = {
                 "rules": rules_data,
                 "rule_count": rule_stats,
@@ -733,6 +779,7 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
                 },
                 "groups": groups_data,
                 "time_limits": time_limits_data,
+                "wan_throughput": wan_throughput,
             }
 
             # Update previous rules for next comparison
@@ -760,6 +807,65 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(
                 f"Unexpected error communicating with MSP API: {err}"
             ) from err
+
+    async def _fetch_wan_throughput(self, now: float) -> dict[str, Any]:
+        """Sample WAN bandwidth from the flows endpoint."""
+        sample_seconds = self._wan_sample_interval
+        end_ts = now
+        begin_ts = self._wan_last_sample_end if self._wan_last_sample_end else now - sample_seconds
+        actual_window = max(end_ts - begin_ts, 1.0)
+
+        try:
+            response = await self.api.get_flow_bandwidth(self.box_gid, begin_ts, end_ts)
+        except Exception as err:
+            _LOGGER.debug("WAN throughput fetch failed: %s", err)
+            return self.data.get("wan_throughput", {}) if self.data else {}
+
+        self._wan_last_sample_end = end_ts
+
+        download_bytes = 0
+        upload_bytes = 0
+        if isinstance(response, dict):
+            results = response.get("results", [])
+        elif isinstance(response, list):
+            results = response
+        else:
+            results = []
+
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            try:
+                download_bytes += max(int(item.get("download", 0)), 0)
+                upload_bytes += max(int(item.get("upload", 0)), 0)
+            except (TypeError, ValueError):
+                continue
+
+        download_mbps = round(download_bytes * 8 / actual_window / 1_000_000, 3)
+        upload_mbps = round(upload_bytes * 8 / actual_window / 1_000_000, 3)
+        total_mbps = round(download_mbps + upload_mbps, 3)
+
+        throughput: dict[str, Any] = {
+            "download_mbps": download_mbps,
+            "upload_mbps": upload_mbps,
+            "total_mbps": total_mbps,
+            "download_bytes": download_bytes,
+            "upload_bytes": upload_bytes,
+            "sample_seconds": round(actual_window, 1),
+            "download_capacity_mbps": self._wan_download_capacity,
+            "upload_capacity_mbps": self._wan_upload_capacity,
+        }
+
+        if self._wan_download_capacity > 0:
+            throughput["download_utilization"] = round(
+                min(download_mbps / self._wan_download_capacity * 100, 100.0), 1
+            )
+        if self._wan_upload_capacity > 0:
+            throughput["upload_utilization"] = round(
+                min(upload_mbps / self._wan_upload_capacity * 100, 100.0), 1
+            )
+
+        return throughput
 
     async def _fetch_filtered_rules(self) -> Dict[str, Any]:
         """Fetch rules with include/exclude filters applied."""

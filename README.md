@@ -35,6 +35,8 @@ Firewalla is great at managing your network, but checking time limits and toggli
 - **Auto-generated dashboard** — enter user names, get a per-user parental control dashboard with progress bars, bandwidth graphs, device lists, and block toggles
 - **Dynamic entity lifecycle** — entities auto-add/remove when Firewalla rules, groups, or devices change
 - **Optimistic state updates** — UI reflects toggles immediately, confirmed on next poll
+- **WAN throughput sensors** — sampled download/upload Mbps from the flows endpoint on a separate 120-second cycle
+- **WAN utilization sensors** — percentage of provisioned capacity in use (configure your WAN speed in options)
 - **Split-polling** — time-sensitive data polled frequently; bulk data less often
 - **Configurable polling intervals** — tune API call frequency via integration options
 - **Dynamic naming** — all entity names derived from API data, no hardcoded strings
@@ -88,8 +90,11 @@ The integration polls the Firewalla API at configurable intervals. Lower values 
 | Full Rules Refresh | 300s | 60-900s | How often to fetch **all firewall rules** — block/allow status, hit counts, schedules (~55 KB). Between full refreshes, only lightweight time limit data is fetched. |
 | Devices Refresh | 600s | 60-600s | How often to fetch **device data** — online/offline status, IP addresses, bandwidth usage, activity detection (~45 KB). Higher values reduce API calls but delay device status updates. |
 | Users Cache Duration | 1800s | 60-3600s | How long to cache **user and group names** (~2 KB). Names rarely change, so this can be set high. |
+| WAN Sample Interval | 120s | 120-600s | How often to sample **WAN throughput** from the flows endpoint. Each sample queries aggregated flow data for your box over the sample window. |
+| WAN Download Capacity | 0 | 0-100000 | Your provisioned WAN download speed in Mbps. Set to 0 to disable the download utilization sensor. |
+| WAN Upload Capacity | 0 | 0-100000 | Your provisioned WAN upload speed in Mbps. Set to 0 to disable the upload utilization sensor. |
 
-**API calls per minute at defaults:** ~1.7 (well within Firewalla's rate limits).
+**API calls per minute at defaults:** ~2.2 (well within Firewalla's rate limits).
 
 ### Rule Filters (Settings > Integrations > Firewalla > Configure)
 
@@ -129,6 +134,13 @@ All entity names are derived from API data. Users can override display names via
 | Time limit | `{target.value}` (e.g., "Internet", "Youtube") | Minutes remaining | quota_minutes, used_minutes, usage_percent, reached |
 | Bandwidth (download) | "Download" | GB (24h) | bytes, mb |
 | Bandwidth (upload) | "Upload" | GB (24h) | bytes, mb |
+| WAN Download | Static | Mbps (sampled) | sample_seconds, bytes |
+| WAN Upload | Static | Mbps (sampled) | sample_seconds, bytes |
+| WAN Total | Static | Mbps (sampled) | sample_seconds |
+| WAN Download Utilization | Static | % of provisioned capacity | capacity_mbps, current_mbps |
+| WAN Upload Utilization | Static | % of provisioned capacity | capacity_mbps, current_mbps |
+
+WAN throughput sensors query the `/v2/flows` endpoint every 120 seconds (configurable) and calculate average Mbps over the sample window. Utilization sensors only appear when you configure a provisioned WAN capacity in the integration options.
 
 ### Binary Sensors
 

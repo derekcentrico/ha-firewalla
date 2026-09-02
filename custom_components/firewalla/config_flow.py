@@ -33,11 +33,17 @@ from .const import (
     CONF_INCLUDE_FILTERS,
     CONF_MSP_URL,
     CONF_USERS_CACHE_TTL,
+    CONF_WAN_DOWNLOAD_CAPACITY,
+    CONF_WAN_SAMPLE_INTERVAL,
+    CONF_WAN_UPLOAD_CAPACITY,
     DEFAULT_BASE_POLL_INTERVAL,
     DEFAULT_DEVICES_INTERVAL,
     DEFAULT_FULL_RULES_INTERVAL,
     DEFAULT_MSP_URL_FORMAT,
     DEFAULT_USERS_CACHE_TTL,
+    DEFAULT_WAN_DOWNLOAD_CAPACITY,
+    DEFAULT_WAN_SAMPLE_INTERVAL,
+    DEFAULT_WAN_UPLOAD_CAPACITY,
     DOMAIN,
 )
 from .coordinator import FirewallaMSPClient
@@ -499,6 +505,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_USERS_CACHE_TTL: user_input.get(
                     CONF_USERS_CACHE_TTL, DEFAULT_USERS_CACHE_TTL
                 ),
+                CONF_WAN_SAMPLE_INTERVAL: user_input.get(
+                    CONF_WAN_SAMPLE_INTERVAL, DEFAULT_WAN_SAMPLE_INTERVAL
+                ),
+                CONF_WAN_DOWNLOAD_CAPACITY: user_input.get(
+                    CONF_WAN_DOWNLOAD_CAPACITY, DEFAULT_WAN_DOWNLOAD_CAPACITY
+                ),
+                CONF_WAN_UPLOAD_CAPACITY: user_input.get(
+                    CONF_WAN_UPLOAD_CAPACITY, DEFAULT_WAN_UPLOAD_CAPACITY
+                ),
             }
 
             return self.async_create_entry(title="", data=options_data)
@@ -557,6 +572,24 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                             CONF_USERS_CACHE_TTL, DEFAULT_USERS_CACHE_TTL
                         ),
                     ): vol.All(vol.Coerce(int), vol.Range(min=60, max=3600)),
+                    vol.Optional(
+                        CONF_WAN_SAMPLE_INTERVAL,
+                        default=current_options.get(
+                            CONF_WAN_SAMPLE_INTERVAL, DEFAULT_WAN_SAMPLE_INTERVAL
+                        ),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=120, max=600)),
+                    vol.Optional(
+                        CONF_WAN_DOWNLOAD_CAPACITY,
+                        default=current_options.get(
+                            CONF_WAN_DOWNLOAD_CAPACITY, DEFAULT_WAN_DOWNLOAD_CAPACITY
+                        ),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0, max=100000)),
+                    vol.Optional(
+                        CONF_WAN_UPLOAD_CAPACITY,
+                        default=current_options.get(
+                            CONF_WAN_UPLOAD_CAPACITY, DEFAULT_WAN_UPLOAD_CAPACITY
+                        ),
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0, max=100000)),
                 }
             ),
             description_placeholders={

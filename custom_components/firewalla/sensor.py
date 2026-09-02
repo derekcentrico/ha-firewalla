@@ -10,6 +10,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
+from homeassistant.const import UnitOfDataRate
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
@@ -58,14 +59,25 @@ async def async_setup_entry(
         except Exception as err:
             _LOGGER.error("Error creating rules summary sensor: %s", err)
 
+        # WAN throughput sensors
+        wan_data = coordinator.data.get("wan_throughput") if coordinator.data else None
+        if isinstance(wan_data, dict):
+            entities.append(FirewallaWanSensor(coordinator, "download"))
+            entities.append(FirewallaWanSensor(coordinator, "upload"))
+            entities.append(FirewallaWanSensor(coordinator, "total"))
+            if wan_data.get("download_capacity_mbps", 0) > 0:
+                entities.append(FirewallaWanUtilizationSensor(coordinator, "download"))
+            if wan_data.get("upload_capacity_mbps", 0) > 0:
+                entities.append(FirewallaWanUtilizationSensor(coordinator, "upload"))
+
         if entities:
             async_add_entities(entities)
             _LOGGER.info(
-                "Successfully added %d Firewalla rule statistics sensor entities",
+                "Successfully added %d Firewalla sensor entities",
                 len(entities),
             )
         else:
-            _LOGGER.warning("No valid rule statistics sensor entities could be created")
+            _LOGGER.warning("No valid sensor entities could be created")
             async_add_entities([])
 
         known_time_limit_keys: set[tuple[str, str]] = set()
@@ -473,4 +485,121 @@ class FirewallaBandwidthSensor(CoordinatorEntity, SensorEntity):
             "group_id": self._group_id,
             "bytes": bytes_val,
             "mb": round(bytes_val / (1024**2), 1),
+        }
+
+
+class FirewallaWanSensor(CoordinatorEntity, SensorEntity):
+    """WAN throughput sensor (download, upload, or total Mbps)."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.DATA_RATE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfDataRate.MEGABITS_PER_SECOND
+    _attr_suggested_display_precision = 1
+    _unrecorded_attributes = frozenset({"sample_seconds"})
+
+    _LABELS = {
+        "download": ("WAN Download", "mdi:download-network-outline"),
+        "upload": ("WAN Upload", "mdi:upload-network-outline"),
+        "total": ("WAN Total", "mdi:swap-vertical-bold"),
+    }
+
+    def __init__(
+        self, coordinator: FirewallaDataUpdateCoordinator, direction: str
+    ) -> None:
+        super().__init__(coordinator)
+        self._direction = direction
+        label, icon = self._LABELS[direction]
+        self._attr_unique_id = f"firewalla_{coordinator.box_gid}_wan_{direction}"
+        self._attr_name = label
+        self._attr_icon = icon
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.box_gid)},
+            name=f"Firewalla Box {coordinator.box_gid[:8]}",
+            manufacturer=DEVICE_MANUFACTURER,
+        )
+
+    def _get_wan_data(self) -> dict[str, Any] | None:
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get("wan_throughput")
+
+    @property
+    def native_value(self) -> float | None:
+        wan = self._get_wan_data()
+        if not wan:
+            return None
+        return wan.get(f"{self._direction}_mbps")
+
+    @property
+    def available(self) -> bool:
+        return (
+            self.coordinator.last_update_success and self._get_wan_data() is not None
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        wan = self._get_wan_data()
+        if not wan:
+            return {}
+        attrs = {"sample_seconds": wan.get("sample_seconds")}
+        if self._direction != "total":
+            attrs["bytes"] = wan.get(f"{self._direction}_bytes", 0)
+        return attrs
+
+
+class FirewallaWanUtilizationSensor(CoordinatorEntity, SensorEntity):
+    """WAN utilization percentage sensor."""
+
+    _attr_has_entity_name = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "%"
+    _attr_suggested_display_precision = 1
+    _unrecorded_attributes = frozenset({"capacity_mbps", "current_mbps"})
+
+    def __init__(
+        self, coordinator: FirewallaDataUpdateCoordinator, direction: str
+    ) -> None:
+        super().__init__(coordinator)
+        self._direction = direction
+        self._attr_unique_id = (
+            f"firewalla_{coordinator.box_gid}_wan_{direction}_utilization"
+        )
+        self._attr_name = f"WAN {direction.title()} Utilization"
+        self._attr_icon = "mdi:gauge"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.box_gid)},
+            name=f"Firewalla Box {coordinator.box_gid[:8]}",
+            manufacturer=DEVICE_MANUFACTURER,
+        )
+
+    def _get_wan_data(self) -> dict[str, Any] | None:
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get("wan_throughput")
+
+    @property
+    def native_value(self) -> float | None:
+        wan = self._get_wan_data()
+        if not wan:
+            return None
+        return wan.get(f"{self._direction}_utilization")
+
+    @property
+    def available(self) -> bool:
+        wan = self._get_wan_data()
+        return (
+            self.coordinator.last_update_success
+            and wan is not None
+            and f"{self._direction}_utilization" in wan
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        wan = self._get_wan_data()
+        if not wan:
+            return {}
+        return {
+            "capacity_mbps": wan.get(f"{self._direction}_capacity_mbps", 0),
+            "current_mbps": wan.get(f"{self._direction}_mbps", 0),
         }

@@ -25,10 +25,16 @@ from .const import (
     CONF_INCLUDE_FILTERS,
     CONF_MSP_URL,
     CONF_USERS_CACHE_TTL,
+    CONF_WAN_DOWNLOAD_CAPACITY,
+    CONF_WAN_SAMPLE_INTERVAL,
+    CONF_WAN_UPLOAD_CAPACITY,
     DEFAULT_BASE_POLL_INTERVAL,
     DEFAULT_DEVICES_INTERVAL,
     DEFAULT_FULL_RULES_INTERVAL,
     DEFAULT_USERS_CACHE_TTL,
+    DEFAULT_WAN_DOWNLOAD_CAPACITY,
+    DEFAULT_WAN_SAMPLE_INTERVAL,
+    DEFAULT_WAN_UPLOAD_CAPACITY,
     DOMAIN,
     PLATFORMS,
 )
@@ -266,6 +272,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         users_cache_ttl = entry.options.get(
             CONF_USERS_CACHE_TTL, DEFAULT_USERS_CACHE_TTL
         )
+        wan_sample_interval = entry.options.get(
+            CONF_WAN_SAMPLE_INTERVAL, DEFAULT_WAN_SAMPLE_INTERVAL
+        )
+        wan_download_capacity = entry.options.get(
+            CONF_WAN_DOWNLOAD_CAPACITY, DEFAULT_WAN_DOWNLOAD_CAPACITY
+        )
+        wan_upload_capacity = entry.options.get(
+            CONF_WAN_UPLOAD_CAPACITY, DEFAULT_WAN_UPLOAD_CAPACITY
+        )
 
         # Initialize the data update coordinator for rule discovery
         coordinator = FirewallaDataUpdateCoordinator(
@@ -281,6 +296,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             full_rules_interval=full_rules_interval,
             devices_interval=devices_interval,
             users_cache_ttl=users_cache_ttl,
+            wan_sample_interval=wan_sample_interval,
+            wan_download_capacity=wan_download_capacity,
+            wan_upload_capacity=wan_upload_capacity,
         )
 
         # Test authentication and perform initial rule discovery
