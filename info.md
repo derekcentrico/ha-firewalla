@@ -67,4 +67,4 @@ The integration uses a configuration flow to set up:
 
 ## Support
 
-For issues and support, visit the [GitHub repository](https://github.com/djuntgen/firewalla-home-assistant).
+For issues and support, visit the [GitHub repository](https://github.com/derekcentrico/ha-firewalla).

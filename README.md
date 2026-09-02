@@ -7,8 +7,8 @@
 
 <p align="center">
   <a href="https://github.com/custom-components/hacs"><img src="https://img.shields.io/badge/HACS-Custom-orange.svg" alt="HACS"></a>
-  <a href="https://github.com/djuntgen/firewalla-home-assistant/releases"><img src="https://img.shields.io/github/release/djuntgen/firewalla-home-assistant.svg" alt="GitHub release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/djuntgen/firewalla-home-assistant.svg" alt="License"></a>
+  <a href="https://github.com/derekcentrico/ha-firewalla/releases"><img src="https://img.shields.io/github/release/derekcentrico/ha-firewalla.svg" alt="GitHub release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/derekcentrico/ha-firewalla.svg" alt="License"></a>
 </p>
 
 A Home Assistant custom integration for managing Firewalla firewall rules, parental controls, and device monitoring via the MSP (Managed Service Provider) API v2.
@@ -54,7 +54,7 @@ Firewalla is great at managing your network, but checking time limits and toggli
 
 1. Open HACS in Home Assistant
 2. Go to **Integrations** > three-dot menu > **Custom repositories**
-3. Add this repository URL: `https://github.com/djuntgen/firewalla-home-assistant`
+3. Add this repository URL: `https://github.com/derekcentrico/ha-firewalla`
 4. Select **Integration** as the category and click **Add**
 5. Find "Firewalla" in the integration list and install it
 6. Restart Home Assistant
