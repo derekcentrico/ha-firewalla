@@ -914,10 +914,7 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
             )
 
         # Peak detail fetch when traffic is interesting
-        previous_peak = (
-            self.data.get("wan_throughput", {}).get("peak") if self.data else None
-        )
-        peak_data = previous_peak
+        peak_data = None
         if (
             download_mbps >= WAN_PEAK_TRIGGER_MBPS
             or upload_mbps >= WAN_PEAK_TRIGGER_MBPS
