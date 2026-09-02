@@ -342,7 +342,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 for box in boxes:
                     if not isinstance(box, dict):
                         continue
-                    gid = str(box.get("gid", "")).strip()
+                    raw_gid = box.get("gid")
+                    if not isinstance(raw_gid, str) or not raw_gid.strip():
+                        continue
+                    gid = raw_gid.strip()
                     if not gid:
                         continue
                     self._available_boxes[gid] = {

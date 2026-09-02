@@ -557,7 +557,14 @@ class FirewallaMSPClient:
     async def get_boxes(self) -> list:
         """Get all boxes from MSP API."""
         result = await self._make_request("GET", "/boxes")
-        return result if isinstance(result, list) else []
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict):
+            for key in ("boxes", "results", "data"):
+                if key in result and isinstance(result[key], list):
+                    return result[key]
+        _LOGGER.warning("Unexpected boxes response type: %s", type(result).__name__)
+        return []
 
     async def get_devices(self) -> list:
         """Get all devices from MSP API."""

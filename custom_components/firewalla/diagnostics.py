@@ -10,7 +10,16 @@ from homeassistant.core import HomeAssistant
 
 from .const import CONF_ACCESS_TOKEN, DOMAIN
 
-TO_REDACT = {CONF_ACCESS_TOKEN, "access_token", "token"}
+TO_REDACT = {
+    CONF_ACCESS_TOKEN,
+    "access_token",
+    "token",
+    "gid",
+    "name",
+    "ip",
+    "mac",
+    "publicIP",
+}
 
 
 async def async_get_config_entry_diagnostics(
@@ -21,9 +30,19 @@ async def async_get_config_entry_diagnostics(
 
     data = coordinator.data or {}
 
+    box_info = data.get("box_info", {})
+    safe_box_info = {
+        "model": box_info.get("model"),
+        "online": box_info.get("online"),
+        "version": box_info.get("version"),
+    } if isinstance(box_info, dict) else {}
+
     return {
         "entry": async_redact_data(dict(entry.data), TO_REDACT),
-        "options": dict(entry.options),
+        "options": {
+            k: v for k, v in entry.options.items()
+            if k not in ("include_filters", "exclude_filters", "dashboard_users")
+        },
         "last_update_success": coordinator.last_update_success,
         "polling": {
             "base_poll_interval": coordinator._base_poll_interval,
@@ -32,7 +51,7 @@ async def async_get_config_entry_diagnostics(
             "users_cache_ttl": coordinator._users_cache_ttl,
             "poll_count": coordinator._poll_count,
         },
-        "box_info": data.get("box_info"),
+        "box_info": safe_box_info,
         "rule_count": data.get("rule_count"),
         "group_count": len(data.get("groups", {})),
         "time_limit_count": len(data.get("time_limits", {})),
