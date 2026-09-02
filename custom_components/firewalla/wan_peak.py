@@ -47,7 +47,7 @@ class WanPeakEstimator:
             f"{flow.get('protocol', '')}|{device_id}|{source_id}|{dest_id}|"
             f"{flow.get('download', 0)}|{flow.get('upload', 0)}"
         )
-        return hashlib.md5(key.encode()).digest()
+        return hashlib.md5(key.encode(), usedforsecurity=False).digest()
 
     def _allocate_flow(self, flow: dict) -> bool:
         """Allocate one flow into 5-second buckets. Returns False if skipped."""
