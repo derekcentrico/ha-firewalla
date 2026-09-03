@@ -206,3 +206,25 @@ class WanPeakEstimator:
                 if bucket.get(key, 0.0) >= threshold
             )
         return dist
+
+    def max_peak(self, direction: str) -> tuple[float, int | None]:
+        """Return the highest reconstructed value and its timestamp from retained buckets."""
+        if not self._buckets:
+            return 0.0, None
+
+        best_value = 0.0
+        best_ts = None
+
+        for ts, bucket in self._buckets.items():
+            if direction == "total":
+                value = bucket.get("download_mbps", 0.0) + bucket.get(
+                    "upload_mbps", 0.0
+                )
+            else:
+                value = bucket.get(f"{direction}_mbps", 0.0)
+
+            if value > best_value:
+                best_value = value
+                best_ts = ts
+
+        return round(best_value, 1), best_ts

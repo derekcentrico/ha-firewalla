@@ -74,6 +74,11 @@ async def async_setup_entry(
         entities.append(FirewallaWanPeakSensor(coordinator, "upload"))
         entities.append(FirewallaWanPeakSensor(coordinator, "total"))
 
+        # WAN last peak and 24h max peak sensors (always created)
+        for direction in ("download", "upload", "total"):
+            entities.append(FirewallaWanLastPeakSensor(coordinator, direction))
+            entities.append(FirewallaWanMaxPeakSensor(coordinator, direction))
+
         # WAN near-capacity sensors (only when capacity is configured)
         if getattr(coordinator, "_wan_download_capacity", 0) > 0:
             entities.append(FirewallaWanNearCapacitySensor(coordinator, "download"))
@@ -760,8 +765,153 @@ class FirewallaWanNearCapacitySensor(CoordinatorEntity, SensorEntity):
         capacity = getattr(self.coordinator, f"_wan_{self._direction}_capacity", 0)
         dist_key = f"{self._direction}_capacity_distribution"
         dist = wan.get(dist_key, {})
+        max_key = f"{self._direction}_max_peak_mbps"
+        max_val = wan.get(max_key, 0.0) if isinstance(wan, dict) else 0.0
+        max_util_key = f"{self._direction}_max_utilization_pct"
+        max_util = wan.get(max_util_key, 0.0) if isinstance(wan, dict) else 0.0
         return {
             "capacity_mbps": capacity,
             "threshold_pct": 90,
+            "max_peak_24h_mbps": max_val,
+            "max_utilization_24h_pct": max_util,
             **dist,
+        }
+
+
+class FirewallaWanLastPeakSensor(CoordinatorEntity, SensorEntity):
+    """Most recent successfully reconstructed peak throughput."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.DATA_RATE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfDataRate.MEGABITS_PER_SECOND
+    _attr_suggested_display_precision = 1
+    _unrecorded_attributes = frozenset(
+        {"peak_timestamp", "coverage_percent", "detail_flow_count", "detail_truncated"}
+    )
+
+    _LABELS = {
+        "download": ("WAN Download Last Peak", "mdi:download-network"),
+        "upload": ("WAN Upload Last Peak", "mdi:upload-network"),
+        "total": ("WAN Total Last Peak", "mdi:swap-vertical-bold"),
+    }
+
+    def __init__(
+        self, coordinator: FirewallaDataUpdateCoordinator, direction: str
+    ) -> None:
+        super().__init__(coordinator)
+        self._direction = direction
+        label, icon = self._LABELS[direction]
+        self._attr_unique_id = (
+            f"firewalla_{coordinator.box_gid}_wan_{direction}_last_peak"
+        )
+        self._attr_name = label
+        self._attr_icon = icon
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.box_gid)},
+            name=f"Firewalla Box {coordinator.box_gid[:8]}",
+            manufacturer=DEVICE_MANUFACTURER,
+        )
+
+    def _get_last_peak(self) -> dict[str, Any] | None:
+        if not self.coordinator.data:
+            return None
+        wan = self.coordinator.data.get("wan_throughput")
+        if not isinstance(wan, dict):
+            return None
+        return wan.get("last_peak")
+
+    @property
+    def native_value(self) -> float | None:
+        peak = self._get_last_peak()
+        if not isinstance(peak, dict):
+            return None
+        return peak.get(f"{self._direction}_peak_mbps")
+
+    @property
+    def available(self) -> bool:
+        peak = self._get_last_peak()
+        return (
+            self.coordinator.last_update_success
+            and isinstance(peak, dict)
+            and f"{self._direction}_peak_mbps" in peak
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        peak = self._get_last_peak()
+        if not isinstance(peak, dict):
+            return {}
+        attrs: dict[str, Any] = {
+            "peak_timestamp": peak.get(f"{self._direction}_peak_timestamp"),
+            "estimation_method": peak.get("estimation_method", "completed_flows"),
+        }
+        if self._direction != "total":
+            attrs["coverage_percent"] = peak.get(f"{self._direction}_coverage_pct")
+        attrs["detail_flow_count"] = peak.get("detail_flow_count")
+        attrs["detail_truncated"] = peak.get("detail_truncated")
+        return attrs
+
+
+class FirewallaWanMaxPeakSensor(CoordinatorEntity, SensorEntity):
+    """Highest reconstructed peak from the retained 24-hour bucket ring."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.DATA_RATE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfDataRate.MEGABITS_PER_SECOND
+    _attr_suggested_display_precision = 1
+    _unrecorded_attributes = frozenset({"peak_timestamp"})
+
+    _LABELS = {
+        "download": ("WAN Download 24h Max Peak", "mdi:arrow-collapse-up"),
+        "upload": ("WAN Upload 24h Max Peak", "mdi:arrow-collapse-up"),
+        "total": ("WAN Total 24h Max Peak", "mdi:arrow-collapse-up"),
+    }
+
+    def __init__(
+        self, coordinator: FirewallaDataUpdateCoordinator, direction: str
+    ) -> None:
+        super().__init__(coordinator)
+        self._direction = direction
+        label, icon = self._LABELS[direction]
+        self._attr_unique_id = (
+            f"firewalla_{coordinator.box_gid}_wan_{direction}_max_peak_24h"
+        )
+        self._attr_name = label
+        self._attr_icon = icon
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.box_gid)},
+            name=f"Firewalla Box {coordinator.box_gid[:8]}",
+            manufacturer=DEVICE_MANUFACTURER,
+        )
+
+    def _get_wan_data(self) -> dict[str, Any] | None:
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get("wan_throughput")
+
+    @property
+    def native_value(self) -> float | None:
+        wan = self._get_wan_data()
+        if not isinstance(wan, dict):
+            return None
+        return wan.get(f"{self._direction}_max_peak_mbps")
+
+    @property
+    def available(self) -> bool:
+        wan = self._get_wan_data()
+        return (
+            self.coordinator.last_update_success
+            and isinstance(wan, dict)
+            and f"{self._direction}_max_peak_mbps" in wan
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        wan = self._get_wan_data()
+        if not isinstance(wan, dict):
+            return {}
+        return {
+            "peak_timestamp": wan.get(f"{self._direction}_max_peak_timestamp"),
         }

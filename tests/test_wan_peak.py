@@ -424,6 +424,7 @@ class TestDetailSkippedBelowThreshold:
         coord._wan_download_capacity = 2437.0
         coord._wan_upload_capacity = 880.0
         coord._wan_peak_estimator = WanPeakEstimator()
+        coord._wan_last_peak = None
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(
@@ -464,6 +465,7 @@ class TestDetailTriggeredAboveThreshold:
         coord._wan_download_capacity = 2437.0
         coord._wan_upload_capacity = 880.0
         coord._wan_peak_estimator = WanPeakEstimator()
+        coord._wan_last_peak = None
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(
@@ -499,6 +501,7 @@ class TestDetailApiFailurePreservesWanSensors:
         coord._wan_download_capacity = 0
         coord._wan_upload_capacity = 0
         coord._wan_peak_estimator = WanPeakEstimator()
+        coord._wan_last_peak = None
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(
@@ -539,6 +542,7 @@ class TestCoverageCalculation:
         coord._wan_download_capacity = 2437.0
         coord._wan_upload_capacity = 880.0
         coord._wan_peak_estimator = WanPeakEstimator()
+        coord._wan_last_peak = None
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(
@@ -576,6 +580,7 @@ class TestTruncatedPagination:
         coord._wan_download_capacity = 0
         coord._wan_upload_capacity = 0
         coord._wan_peak_estimator = WanPeakEstimator()
+        coord._wan_last_peak = None
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(
@@ -609,3 +614,163 @@ class TestLocalFlowExclusionInQuery:
         assert "-direction:local" in query
         assert "status:ok" in query
         assert "total:>1MB" in query
+
+
+class TestMaxPeak:
+    """Test the 24h max peak method."""
+
+    def test_max_peak_download(self):
+        estimator = WanPeakEstimator()
+        estimator._buckets = {
+            1000: {"download_mbps": 500.0, "upload_mbps": 100.0},
+            1005: {"download_mbps": 1200.0, "upload_mbps": 50.0},
+            1010: {"download_mbps": 800.0, "upload_mbps": 200.0},
+        }
+        val, ts = estimator.max_peak("download")
+        assert val == 1200.0
+        assert ts == 1005
+
+    def test_max_peak_upload(self):
+        estimator = WanPeakEstimator()
+        estimator._buckets = {
+            1000: {"download_mbps": 500.0, "upload_mbps": 100.0},
+            1005: {"download_mbps": 1200.0, "upload_mbps": 50.0},
+            1010: {"download_mbps": 800.0, "upload_mbps": 200.0},
+        }
+        val, ts = estimator.max_peak("upload")
+        assert val == 200.0
+        assert ts == 1010
+
+    def test_max_peak_total(self):
+        estimator = WanPeakEstimator()
+        estimator._buckets = {
+            1000: {"download_mbps": 500.0, "upload_mbps": 100.0},
+            1005: {"download_mbps": 1200.0, "upload_mbps": 50.0},
+            1010: {"download_mbps": 800.0, "upload_mbps": 200.0},
+        }
+        val, ts = estimator.max_peak("total")
+        assert val == 1250.0
+        assert ts == 1005
+
+    def test_max_peak_empty(self):
+        estimator = WanPeakEstimator()
+        val, ts = estimator.max_peak("download")
+        assert val == 0.0
+        assert ts is None
+
+
+class TestLastPeakSensor:
+    """Test the last-peak sensor."""
+
+    def test_last_peak_value(self):
+        from custom_components.firewalla.sensor import FirewallaWanLastPeakSensor
+
+        coord = SimpleNamespace(
+            box_gid="test-gid-12345678",
+            last_update_success=True,
+            data={
+                "wan_throughput": {
+                    "last_peak": {
+                        "download_peak_mbps": 812.5,
+                        "upload_peak_mbps": 120.0,
+                        "total_peak_mbps": 932.5,
+                        "download_peak_timestamp": 1000,
+                        "upload_peak_timestamp": 1005,
+                        "total_peak_timestamp": 1000,
+                        "estimation_method": "completed_flows",
+                        "download_coverage_pct": 97.2,
+                        "upload_coverage_pct": 95.1,
+                        "detail_flow_count": 42,
+                        "detail_truncated": False,
+                    }
+                }
+            },
+        )
+        sensor = FirewallaWanLastPeakSensor(coord, "download")
+        assert sensor.native_value == 812.5
+        assert sensor.available is True
+        assert sensor.extra_state_attributes["peak_timestamp"] == 1000
+        assert sensor.extra_state_attributes["coverage_percent"] == 97.2
+
+    def test_last_peak_unavailable_when_none(self):
+        from custom_components.firewalla.sensor import FirewallaWanLastPeakSensor
+
+        coord = SimpleNamespace(
+            box_gid="test-gid-12345678",
+            last_update_success=True,
+            data={"wan_throughput": {"last_peak": None}},
+        )
+        sensor = FirewallaWanLastPeakSensor(coord, "download")
+        assert sensor.available is False
+        assert sensor.native_value is None
+
+
+class TestMaxPeakSensor:
+    """Test the 24h max peak sensor."""
+
+    def test_max_peak_sensor_value(self):
+        from custom_components.firewalla.sensor import FirewallaWanMaxPeakSensor
+
+        coord = SimpleNamespace(
+            box_gid="test-gid-12345678",
+            last_update_success=True,
+            data={
+                "wan_throughput": {
+                    "download_max_peak_mbps": 1850.0,
+                    "download_max_peak_timestamp": 1005,
+                    "upload_max_peak_mbps": 450.0,
+                    "upload_max_peak_timestamp": 1010,
+                    "total_max_peak_mbps": 2100.0,
+                    "total_max_peak_timestamp": 1005,
+                }
+            },
+        )
+        dl = FirewallaWanMaxPeakSensor(coord, "download")
+        assert dl.native_value == 1850.0
+        assert dl.available is True
+        assert dl.extra_state_attributes["peak_timestamp"] == 1005
+
+        total = FirewallaWanMaxPeakSensor(coord, "total")
+        assert total.native_value == 2100.0
+
+    def test_max_peak_sensor_unavailable(self):
+        from custom_components.firewalla.sensor import FirewallaWanMaxPeakSensor
+
+        coord = SimpleNamespace(
+            box_gid="test-gid-12345678",
+            last_update_success=True,
+            data={"wan_throughput": {}},
+        )
+        sensor = FirewallaWanMaxPeakSensor(coord, "download")
+        assert sensor.available is False
+
+
+class TestNearCapacityMaxAttrs:
+    """Test that near-capacity sensors include 24h max in attributes."""
+
+    def test_near_capacity_includes_max(self):
+        from custom_components.firewalla.sensor import FirewallaWanNearCapacitySensor
+
+        coord = SimpleNamespace(
+            box_gid="test-gid-12345678",
+            last_update_success=True,
+            _wan_download_capacity=2437.0,
+            data={
+                "wan_throughput": {
+                    "download_near_capacity_minutes": 0.0,
+                    "download_capacity_distribution": {
+                        "buckets_gte_50pct": 0,
+                        "buckets_gte_75pct": 0,
+                        "buckets_gte_90pct": 0,
+                        "buckets_gte_95pct": 0,
+                    },
+                    "download_max_peak_mbps": 620.0,
+                    "download_max_utilization_pct": 25.4,
+                }
+            },
+        )
+        sensor = FirewallaWanNearCapacitySensor(coord, "download")
+        attrs = sensor.extra_state_attributes
+        assert attrs["max_peak_24h_mbps"] == 620.0
+        assert attrs["max_utilization_24h_pct"] == 25.4
+        assert attrs["capacity_mbps"] == 2437.0

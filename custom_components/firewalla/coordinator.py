@@ -708,6 +708,7 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
         self._wan_upload_capacity: float = max(0.0, float(wan_upload_capacity))
         self._wan_last_sample_end: float = 0
         self._wan_peak_estimator = WanPeakEstimator()
+        self._wan_last_peak: dict[str, Any] | None = None
 
         super().__init__(
             hass,
@@ -958,7 +959,17 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
 
         self._wan_peak_estimator.prune(end_ts)
 
+        if peak_data is not None:
+            self._wan_last_peak = peak_data
+
         throughput["peak"] = peak_data
+        throughput["last_peak"] = self._wan_last_peak
+
+        # 24h max peaks from retained bucket ring
+        for direction in ("download", "upload", "total"):
+            max_val, max_ts = self._wan_peak_estimator.max_peak(direction)
+            throughput[f"{direction}_max_peak_mbps"] = max_val
+            throughput[f"{direction}_max_peak_timestamp"] = max_ts
 
         if self._wan_download_capacity > 0:
             throughput["download_near_capacity_minutes"] = (
@@ -971,6 +982,12 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
                     "download", self._wan_download_capacity
                 )
             )
+            dl_max, _ = self._wan_peak_estimator.max_peak("download")
+            throughput["download_max_utilization_pct"] = (
+                round(dl_max / self._wan_download_capacity * 100, 1)
+                if dl_max > 0
+                else 0.0
+            )
         if self._wan_upload_capacity > 0:
             throughput["upload_near_capacity_minutes"] = (
                 self._wan_peak_estimator.near_capacity_minutes(
@@ -981,6 +998,12 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
                 self._wan_peak_estimator.capacity_distribution(
                     "upload", self._wan_upload_capacity
                 )
+            )
+            ul_max, _ = self._wan_peak_estimator.max_peak("upload")
+            throughput["upload_max_utilization_pct"] = (
+                round(ul_max / self._wan_upload_capacity * 100, 1)
+                if ul_max > 0
+                else 0.0
             )
 
         return throughput

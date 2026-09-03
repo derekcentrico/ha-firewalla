@@ -136,6 +136,8 @@ class TestFetchWanThroughput:
         coord._wan_download_capacity = 2400.0
         coord._wan_upload_capacity = 880.0
         coord._wan_peak_estimator = WanPeakEstimator()
+        coord._wan_last_peak = None
+        coord._wan_last_peak = None
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(coord, 1000.0)
@@ -162,6 +164,7 @@ class TestFetchWanThroughput:
         coord._wan_download_capacity = 0
         coord._wan_upload_capacity = 0
         coord._wan_peak_estimator = WanPeakEstimator()
+        coord._wan_last_peak = None
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(coord, 1000.0)
@@ -203,6 +206,7 @@ class TestFetchWanThroughput:
         coord._wan_download_capacity = 0
         coord._wan_upload_capacity = 0
         coord._wan_peak_estimator = WanPeakEstimator()
+        coord._wan_last_peak = None
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(coord, 1000.0)
