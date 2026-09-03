@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -709,6 +710,12 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
         self._wan_last_sample_end: float = 0
         self._wan_peak_estimator = WanPeakEstimator()
         self._wan_last_peak: dict[str, Any] | None = None
+        self._wan_store = Store(
+            hass,
+            version=1,
+            key=f"{DOMAIN}_wan_peak_{box_gid}",
+        )
+        self._wan_store_dirty = False
 
         super().__init__(
             hass,
@@ -717,6 +724,44 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=self._base_poll_interval),
             config_entry=config_entry,
         )
+
+    async def async_restore_wan_state(self) -> None:
+        """Restore WAN peak estimator state from persistent storage."""
+        import time as _time
+
+        try:
+            stored = await self._wan_store.async_load()
+            if not isinstance(stored, dict):
+                return
+            estimator_data = stored.get("estimator")
+            if isinstance(estimator_data, dict):
+                self._wan_peak_estimator.restore(estimator_data, _time.time())
+            last_peak = stored.get("last_peak")
+            if isinstance(last_peak, dict):
+                self._wan_last_peak = last_peak
+            _LOGGER.debug(
+                "Restored WAN peak state: %d buckets, %d fingerprints",
+                len(self._wan_peak_estimator._buckets),
+                len(self._wan_peak_estimator._fingerprints),
+            )
+        except Exception as err:
+            _LOGGER.debug("Could not restore WAN peak state: %s", err)
+
+    async def _async_save_wan_state(self) -> None:
+        """Persist WAN peak estimator state."""
+        import time as _time
+
+        try:
+            await self._wan_store.async_save(
+                {
+                    "estimator": self._wan_peak_estimator.to_dict(),
+                    "last_peak": self._wan_last_peak,
+                    "saved_at": _time.time(),
+                }
+            )
+            self._wan_store_dirty = False
+        except Exception as err:
+            _LOGGER.debug("Could not save WAN peak state: %s", err)
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch rule data from MSP API with automatic rule change detection."""
@@ -961,6 +1006,10 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
 
         if peak_data is not None:
             self._wan_last_peak = peak_data
+            self._wan_store_dirty = True
+
+        if self._wan_store_dirty:
+            await self._async_save_wan_state()
 
         throughput["peak"] = peak_data
         throughput["last_peak"] = self._wan_last_peak

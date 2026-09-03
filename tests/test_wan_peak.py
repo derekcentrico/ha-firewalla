@@ -109,8 +109,12 @@ class TestDuplicateFlowNotDoubleCounted:
 
         assert result1["flows_allocated"] == 1
         assert result2["flows_allocated"] == 0
-        # Peak should not double
-        assert result1["download_peak_mbps"] == result2["download_peak_mbps"]
+        # Second call touched no buckets, so cycle peak is 0
+        assert result2["download_peak_mbps"] == 0.0
+        # But the underlying bucket value was not doubled
+        assert estimator._buckets[1000]["download_mbps"] == pytest.approx(
+            100_000_000 * 8 / 5 / 1_000_000, rel=0.01
+        )
 
 
 class TestZeroDurationFlowSkipped:
@@ -425,6 +429,8 @@ class TestDetailSkippedBelowThreshold:
         coord._wan_upload_capacity = 880.0
         coord._wan_peak_estimator = WanPeakEstimator()
         coord._wan_last_peak = None
+        coord._wan_store_dirty = False
+        coord._async_save_wan_state = AsyncMock()
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(
@@ -466,6 +472,8 @@ class TestDetailTriggeredAboveThreshold:
         coord._wan_upload_capacity = 880.0
         coord._wan_peak_estimator = WanPeakEstimator()
         coord._wan_last_peak = None
+        coord._wan_store_dirty = False
+        coord._async_save_wan_state = AsyncMock()
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(
@@ -502,6 +510,8 @@ class TestDetailApiFailurePreservesWanSensors:
         coord._wan_upload_capacity = 0
         coord._wan_peak_estimator = WanPeakEstimator()
         coord._wan_last_peak = None
+        coord._wan_store_dirty = False
+        coord._async_save_wan_state = AsyncMock()
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(
@@ -543,6 +553,8 @@ class TestCoverageCalculation:
         coord._wan_upload_capacity = 880.0
         coord._wan_peak_estimator = WanPeakEstimator()
         coord._wan_last_peak = None
+        coord._wan_store_dirty = False
+        coord._async_save_wan_state = AsyncMock()
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(
@@ -581,6 +593,8 @@ class TestTruncatedPagination:
         coord._wan_upload_capacity = 0
         coord._wan_peak_estimator = WanPeakEstimator()
         coord._wan_last_peak = None
+        coord._wan_store_dirty = False
+        coord._async_save_wan_state = AsyncMock()
         coord.data = None
 
         result = await FirewallaDataUpdateCoordinator._fetch_wan_throughput(
@@ -774,3 +788,83 @@ class TestNearCapacityMaxAttrs:
         assert attrs["max_peak_24h_mbps"] == 620.0
         assert attrs["max_utilization_24h_pct"] == 25.4
         assert attrs["capacity_mbps"] == 2437.0
+
+
+class TestPersistence:
+    """Test serialize/restore cycle."""
+
+    def test_roundtrip(self):
+        estimator = WanPeakEstimator()
+        flow = _make_flow(ts=1005, duration=5, download=100_000_000)
+        estimator.process_flows([flow])
+        assert len(estimator._buckets) > 0
+        assert len(estimator._fingerprints) == 1
+
+        saved = estimator.to_dict()
+        assert saved["schema_version"] == 1
+
+        restored = WanPeakEstimator()
+        restored.restore(saved, 1010.0)
+
+        assert len(restored._buckets) == len(estimator._buckets)
+        assert len(restored._fingerprints) == len(estimator._fingerprints)
+
+    def test_restore_prunes_old_data(self):
+        estimator = WanPeakEstimator()
+        flow = _make_flow(ts=1005, duration=5, download=100_000_000)
+        estimator.process_flows([flow])
+        saved = estimator.to_dict()
+
+        restored = WanPeakEstimator()
+        future = 1005 + WAN_PEAK_RETENTION_SECONDS + 100
+        restored.restore(saved, future)
+
+        assert len(restored._buckets) == 0
+        assert len(restored._fingerprints) == 0
+
+    def test_duplicate_rejected_after_restore(self):
+        estimator = WanPeakEstimator()
+        flow = _make_flow(ts=1005, duration=5, download=100_000_000)
+        estimator.process_flows([flow])
+        saved = estimator.to_dict()
+
+        restored = WanPeakEstimator()
+        restored.restore(saved, 1010.0)
+        result = restored.process_flows([flow])
+
+        assert result["flows_allocated"] == 0
+
+    def test_restore_invalid_data(self):
+        estimator = WanPeakEstimator()
+        estimator.restore({"schema_version": 99}, 1000.0)
+        assert len(estimator._buckets) == 0
+
+        estimator.restore("not a dict", 1000.0)
+        assert len(estimator._buckets) == 0
+
+
+class TestTouchedBucketsRegression:
+    """Verify that unrelated historical peaks are not pulled into the current cycle."""
+
+    def test_old_peak_not_reported_as_current(self):
+        estimator = WanPeakEstimator()
+
+        # Create an old 1800 Mbps peak at t=1000
+        old_flow = _make_flow(
+            ts=1005, duration=5, download=int(1800 * 1_000_000 / 8 * 5),
+            device_id="old-device",
+        )
+        result_old = estimator.process_flows([old_flow])
+        assert result_old["download_peak_mbps"] == 1800.0
+
+        # Later, a short flow at t=50000 (does NOT overlap old bucket)
+        new_flow = _make_flow(
+            ts=50005, duration=5, download=200_000_000,
+            device_id="new-device",
+        )
+        result_new = estimator.process_flows([new_flow])
+
+        # The cycle peak should be the new flow's rate, not the old 1800 Mbps
+        assert result_new["download_peak_mbps"] == 320.0
+        # The old 1800 bucket still exists but was not touched this cycle
+        assert estimator._buckets[1000]["download_mbps"] == pytest.approx(1800.0, rel=0.01)

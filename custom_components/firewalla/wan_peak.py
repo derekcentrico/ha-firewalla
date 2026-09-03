@@ -49,22 +49,22 @@ class WanPeakEstimator:
         )
         return hashlib.md5(key.encode(), usedforsecurity=False).digest()
 
-    def _allocate_flow(self, flow: dict) -> bool:
-        """Allocate one flow into 5-second buckets. Returns False if skipped."""
+    def _allocate_flow(self, flow: dict) -> set[int]:
+        """Allocate one flow into 5-second buckets. Returns set of modified bucket timestamps."""
         try:
             ts = float(flow.get("ts", 0))
             duration = float(flow.get("duration", 0))
             dl_bytes = max(int(flow.get("download", 0)), 0)
             ul_bytes = max(int(flow.get("upload", 0)), 0)
         except (TypeError, ValueError):
-            return False
+            return set()
 
         if duration <= 0 or ts <= 0:
-            return False
+            return set()
 
         fp = self._flow_fingerprint(flow)
         if fp in self._fingerprints:
-            return False
+            return set()
         self._fingerprints[fp] = ts
 
         flow_start = max(ts - duration, ts - WAN_PEAK_RETENTION_SECONDS)
@@ -72,8 +72,12 @@ class WanPeakEstimator:
         ul_mbps = ul_bytes * 8 / duration / 1_000_000
 
         first_bucket = self._bucket_ts(flow_start)
-        last_bucket = self._bucket_ts(ts - 0.001) if ts > flow_start else first_bucket
+        last_bucket = max(
+            first_bucket,
+            self._bucket_ts(ts - 0.001) if ts > flow_start else first_bucket,
+        )
 
+        touched: set[int] = set()
         bucket_ts = first_bucket
         while bucket_ts <= last_bucket:
             bucket_start = float(bucket_ts)
@@ -89,10 +93,11 @@ class WanPeakEstimator:
                 )
                 entry["download_mbps"] += dl_mbps * fraction
                 entry["upload_mbps"] += ul_mbps * fraction
+                touched.add(bucket_ts)
 
             bucket_ts += WAN_PEAK_BUCKET_SECONDS
 
-        return True
+        return touched
 
     def process_flows(self, flows: list[dict]) -> dict[str, Any]:
         """Allocate flows into buckets and return cycle peak results."""
@@ -104,30 +109,12 @@ class WanPeakEstimator:
             if not isinstance(flow, dict):
                 skipped += 1
                 continue
-            if self._allocate_flow(flow):
+            modified = self._allocate_flow(flow)
+            if modified:
                 allocated += 1
+                touched_buckets.update(modified)
             else:
                 skipped += 1
-
-        if flows:
-            try:
-                min_ts = min(
-                    float(f.get("ts", 0)) - max(float(f.get("duration", 0)), 0)
-                    for f in flows
-                    if isinstance(f, dict) and f.get("ts")
-                )
-                max_ts = max(
-                    float(f.get("ts", 0))
-                    for f in flows
-                    if isinstance(f, dict) and f.get("ts")
-                )
-                touched_buckets = {
-                    bts
-                    for bts in self._buckets
-                    if self._bucket_ts(min_ts) <= bts <= self._bucket_ts(max_ts)
-                }
-            except (ValueError, TypeError):
-                touched_buckets = set(self._buckets.keys())
 
         dl_peak = 0.0
         ul_peak = 0.0
@@ -228,3 +215,31 @@ class WanPeakEstimator:
                 best_ts = ts
 
         return round(best_value, 1), best_ts
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize state for persistence."""
+        return {
+            "schema_version": 1,
+            "buckets": {str(k): v for k, v in self._buckets.items()},
+            "fingerprints": {fp.hex(): ts for fp, ts in self._fingerprints.items()},
+        }
+
+    def restore(self, data: dict[str, Any], now: float) -> None:
+        """Restore state from persisted data and prune stale entries."""
+        if not isinstance(data, dict) or data.get("schema_version") != 1:
+            return
+        raw_buckets = data.get("buckets", {})
+        if isinstance(raw_buckets, dict):
+            for k, v in raw_buckets.items():
+                try:
+                    self._buckets[int(k)] = v
+                except (ValueError, TypeError):
+                    continue
+        raw_fps = data.get("fingerprints", {})
+        if isinstance(raw_fps, dict):
+            for hex_fp, ts in raw_fps.items():
+                try:
+                    self._fingerprints[bytes.fromhex(hex_fp)] = float(ts)
+                except (ValueError, TypeError):
+                    continue
+        self.prune(now)

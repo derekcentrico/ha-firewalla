@@ -301,6 +301,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             wan_upload_capacity=wan_upload_capacity,
         )
 
+        # Restore WAN peak state before first refresh
+        await coordinator.async_restore_wan_state()
+
         # Test authentication and perform initial rule discovery
         _LOGGER.debug(
             "Testing MSP API authentication and performing initial rule discovery"

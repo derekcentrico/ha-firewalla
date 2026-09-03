@@ -783,7 +783,6 @@ class FirewallaWanLastPeakSensor(CoordinatorEntity, SensorEntity):
 
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.DATA_RATE
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfDataRate.MEGABITS_PER_SECOND
     _attr_suggested_display_precision = 1
     _unrecorded_attributes = frozenset(
@@ -858,7 +857,6 @@ class FirewallaWanMaxPeakSensor(CoordinatorEntity, SensorEntity):
 
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.DATA_RATE
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfDataRate.MEGABITS_PER_SECOND
     _attr_suggested_display_precision = 1
     _unrecorded_attributes = frozenset({"peak_timestamp"})

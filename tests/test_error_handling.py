@@ -195,13 +195,18 @@ class TestCoordinatorErrorHandling:
     @pytest.fixture
     def coordinator(self, mock_hass, mock_aiohttp_session):
         """Create a test coordinator."""
-        return FirewallaDataUpdateCoordinator(
-            hass=mock_hass,
-            session=mock_aiohttp_session,
-            msp_domain="test.firewalla.com",
-            access_token="test_token_123",
-            box_gid="test_box_gid_456",
-        )
+        from unittest.mock import patch
+
+        with patch(
+            "custom_components.firewalla.coordinator.Store"
+        ):
+            return FirewallaDataUpdateCoordinator(
+                hass=mock_hass,
+                session=mock_aiohttp_session,
+                msp_domain="test.firewalla.com",
+                access_token="test_token_123",
+                box_gid="test_box_gid_456",
+            )
 
     @pytest.mark.asyncio
     async def test_update_data_auth_failure(self, coordinator):
