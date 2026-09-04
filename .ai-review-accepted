@@ -1,0 +1,44 @@
+# Pre-existing findings from djuntgen's original codebase, carried forward across releases.
+# None are blockers for our FiOS data-collection experiment.
+
+# Multi-box scoping: coordinator fetches account-wide data. Single-box users unaffected.
+custom_components/firewalla/config_flow.py | box_gid | pre-existing from djuntgen, single-box deployment
+
+# Manifest version: intentionally starting a new version lineage for this fork
+custom_components/firewalla/manifest.json | version | new fork, intentional version reset
+
+# Retry-After HTTP-date: Firewalla uses integer seconds, not HTTP-date
+custom_components/firewalla/coordinator.py | Retry-After | Firewalla API uses integer delta-seconds only
+
+# 429 sleep inside context: low practical risk at 30s timeout cap
+custom_components/firewalla/coordinator.py | sleep | bounded by API_TIMEOUT
+
+# WAN stale cache: documented limitation, sensors show sample_seconds
+custom_components/firewalla/coordinator.py | stale | known limitation, documented
+
+# WAN 403 propagation: single-box MSP tokens include flow access
+custom_components/firewalla/coordinator.py | 403 | MSP tokens include flow endpoint access
+
+# Flow detail trigger threshold: 25 Mbps is appropriate for 2+ Gbps links
+custom_components/firewalla/coordinator.py | 25 Mbps | appropriate for multi-gigabit capacity experiment
+
+# Bucket loop performance: bounded by WAN_PEAK_RETENTION_SECONDS clamp
+custom_components/firewalla/wan_peak.py | 43 million | clamped to retention window
+
+# Fingerprint memory: bounded by WAN_PEAK_MAX_PAGES * WAN_PEAK_PAGE_LIMIT per cycle
+custom_components/firewalla/wan_peak.py | fingerprint | bounded by pagination limits
+
+# Rolling max date window: summaries pruned to 31 days
+custom_components/firewalla/wan_peak.py | most recent N dates | pruned to 31 days
+
+# Restored bucket validation: restore() handles TypeError/ValueError per entry
+custom_components/firewalla/wan_peak.py | corrupted | try/except per entry in restore
+
+# Watermark advancement: acceptable for non-overlapping sample windows
+custom_components/firewalla/coordinator.py | watermark | non-overlapping windows
+
+# Box GID query injection: GID comes from validated config entry
+custom_components/firewalla/coordinator.py | box_gid | from validated config entry
+
+# Coordinator blocking: bounded by WAN_PEAK_MAX_PAGES pagination limit
+custom_components/firewalla/coordinator.py | block or significantly delay | bounded pagination
