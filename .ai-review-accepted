@@ -42,3 +42,6 @@ custom_components/firewalla/coordinator.py | box_gid | from validated config ent
 
 # Coordinator blocking: bounded by WAN_PEAK_MAX_PAGES pagination limit
 custom_components/firewalla/coordinator.py | block or significantly delay | bounded pagination
+
+# Future timestamps: Firewalla API returns server-side timestamps, not user-controlled
+custom_components/firewalla/wan_peak.py | future | Firewalla server timestamps are trusted
