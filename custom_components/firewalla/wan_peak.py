@@ -15,9 +15,12 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from .const import WAN_PEAK_BUCKET_SECONDS, WAN_PEAK_RETENTION_SECONDS
+
+_DAILY_SUMMARY_RETENTION = 31
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,6 +33,7 @@ class WanPeakEstimator:
     def __init__(self) -> None:
         self._buckets: dict[int, dict[str, float]] = {}
         self._fingerprints: dict[bytes, float] = {}
+        self._daily_summaries: dict[str, dict[str, Any]] = {}
 
     def _bucket_ts(self, ts: float) -> int:
         """Round a timestamp down to the nearest bucket boundary."""
@@ -140,6 +144,9 @@ class WanPeakEstimator:
                 total_peak = total
                 total_peak_ts = bts
 
+        self.update_daily_summaries(touched_buckets)
+        self.prune_daily_summaries()
+
         return {
             "download_peak_mbps": round(dl_peak, 1),
             "upload_peak_mbps": round(ul_peak, 1),
@@ -216,17 +223,81 @@ class WanPeakEstimator:
 
         return round(best_value, 1), best_ts
 
+    @staticmethod
+    def _date_key(ts: int) -> str:
+        """Convert a bucket timestamp to a YYYY-MM-DD date string."""
+        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+
+    def update_daily_summaries(self, touched_buckets: set[int]) -> None:
+        """Update daily max values from modified buckets."""
+        for bts in touched_buckets:
+            bucket = self._buckets.get(bts)
+            if not bucket:
+                continue
+            date = self._date_key(bts)
+            dl = bucket.get("download_mbps", 0.0)
+            ul = bucket.get("upload_mbps", 0.0)
+
+            day = self._daily_summaries.get(date)
+            if day is None:
+                self._daily_summaries[date] = {
+                    "date": date,
+                    "download_max_mbps": round(dl, 1),
+                    "download_max_timestamp": bts,
+                    "upload_max_mbps": round(ul, 1),
+                    "upload_max_timestamp": bts,
+                }
+                continue
+
+            if dl > day.get("download_max_mbps", 0.0):
+                day["download_max_mbps"] = round(dl, 1)
+                day["download_max_timestamp"] = bts
+            if ul > day.get("upload_max_mbps", 0.0):
+                day["upload_max_mbps"] = round(ul, 1)
+                day["upload_max_timestamp"] = bts
+
+    def prune_daily_summaries(self) -> None:
+        """Keep only the most recent daily summaries."""
+        if len(self._daily_summaries) <= _DAILY_SUMMARY_RETENTION:
+            return
+        sorted_dates = sorted(self._daily_summaries.keys())
+        for date in sorted_dates[:-_DAILY_SUMMARY_RETENTION]:
+            del self._daily_summaries[date]
+
+    def rolling_max_peak(
+        self, direction: str, window_days: int
+    ) -> tuple[float, int | None]:
+        """Return the max peak over the most recent N calendar days."""
+        if not self._daily_summaries:
+            return 0.0, None
+
+        sorted_dates = sorted(self._daily_summaries.keys(), reverse=True)
+        best_value = 0.0
+        best_ts = None
+
+        for date in sorted_dates[:window_days]:
+            day = self._daily_summaries[date]
+            key = f"{direction}_max_mbps"
+            ts_key = f"{direction}_max_timestamp"
+            val = day.get(key, 0.0)
+            if val > best_value:
+                best_value = val
+                best_ts = day.get(ts_key)
+
+        return round(best_value, 1), best_ts
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize state for persistence."""
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "buckets": {str(k): v for k, v in self._buckets.items()},
             "fingerprints": {fp.hex(): ts for fp, ts in self._fingerprints.items()},
+            "daily_summaries": dict(self._daily_summaries),
         }
 
     def restore(self, data: dict[str, Any], now: float) -> None:
         """Restore state from persisted data and prune stale entries."""
-        if not isinstance(data, dict) or data.get("schema_version") != 1:
+        if not isinstance(data, dict) or data.get("schema_version") not in (1, 2):
             return
         raw_buckets = data.get("buckets", {})
         if isinstance(raw_buckets, dict):
@@ -242,4 +313,10 @@ class WanPeakEstimator:
                     self._fingerprints[bytes.fromhex(hex_fp)] = float(ts)
                 except (ValueError, TypeError):
                     continue
+        raw_daily = data.get("daily_summaries", {})
+        if isinstance(raw_daily, dict):
+            for date, summary in raw_daily.items():
+                if isinstance(date, str) and isinstance(summary, dict):
+                    self._daily_summaries[date] = summary
         self.prune(now)
+        self.prune_daily_summaries()

@@ -79,6 +79,13 @@ async def async_setup_entry(
             entities.append(FirewallaWanLastPeakSensor(coordinator, direction))
             entities.append(FirewallaWanMaxPeakSensor(coordinator, direction))
 
+        # WAN rolling long-term peak sensors (always created, download/upload only)
+        for direction in ("download", "upload"):
+            for window in (7, 30):
+                entities.append(
+                    FirewallaWanRollingMaxSensor(coordinator, direction, window)
+                )
+
         # WAN near-capacity sensors (only when capacity is configured)
         if getattr(coordinator, "_wan_download_capacity", 0) > 0:
             entities.append(FirewallaWanNearCapacitySensor(coordinator, "download"))
@@ -912,4 +919,68 @@ class FirewallaWanMaxPeakSensor(CoordinatorEntity, SensorEntity):
             return {}
         return {
             "peak_timestamp": wan.get(f"{self._direction}_max_peak_timestamp"),
+        }
+
+
+class FirewallaWanRollingMaxSensor(CoordinatorEntity, SensorEntity):
+    """Rolling 7-day or 30-day max peak from persisted daily summaries."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.DATA_RATE
+    _attr_native_unit_of_measurement = UnitOfDataRate.MEGABITS_PER_SECOND
+    _attr_suggested_display_precision = 1
+    _unrecorded_attributes = frozenset({"peak_timestamp", "window_days"})
+
+    def __init__(
+        self,
+        coordinator: FirewallaDataUpdateCoordinator,
+        direction: str,
+        window_days: int,
+    ) -> None:
+        super().__init__(coordinator)
+        self._direction = direction
+        self._window_days = window_days
+        self._attr_unique_id = (
+            f"firewalla_{coordinator.box_gid}_wan_{direction}_{window_days}d_max_peak"
+        )
+        self._attr_name = f"WAN {direction.title()} {window_days}d Max Peak"
+        self._attr_icon = "mdi:chart-timeline-variant-shimmer"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.box_gid)},
+            name=f"Firewalla Box {coordinator.box_gid[:8]}",
+            manufacturer=DEVICE_MANUFACTURER,
+        )
+
+    def _get_wan_data(self) -> dict[str, Any] | None:
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get("wan_throughput")
+
+    @property
+    def native_value(self) -> float | None:
+        wan = self._get_wan_data()
+        if not isinstance(wan, dict):
+            return None
+        key = f"{self._direction}_{self._window_days}d_max_peak_mbps"
+        return wan.get(key)
+
+    @property
+    def available(self) -> bool:
+        wan = self._get_wan_data()
+        key = f"{self._direction}_{self._window_days}d_max_peak_mbps"
+        return (
+            self.coordinator.last_update_success
+            and isinstance(wan, dict)
+            and key in wan
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        wan = self._get_wan_data()
+        if not isinstance(wan, dict):
+            return {}
+        ts_key = f"{self._direction}_{self._window_days}d_max_peak_timestamp"
+        return {
+            "peak_timestamp": wan.get(ts_key),
+            "window_days": self._window_days,
         }

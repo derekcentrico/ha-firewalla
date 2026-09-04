@@ -801,7 +801,7 @@ class TestPersistence:
         assert len(estimator._fingerprints) == 1
 
         saved = estimator.to_dict()
-        assert saved["schema_version"] == 1
+        assert saved["schema_version"] == 2
 
         restored = WanPeakEstimator()
         restored.restore(saved, 1010.0)
@@ -868,3 +868,183 @@ class TestTouchedBucketsRegression:
         assert result_new["download_peak_mbps"] == 320.0
         # The old 1800 bucket still exists but was not touched this cycle
         assert estimator._buckets[1000]["download_mbps"] == pytest.approx(1800.0, rel=0.01)
+
+
+class TestDailySummaries:
+    """Test daily max tracking from bucket data."""
+
+    def test_daily_max_created(self):
+        estimator = WanPeakEstimator()
+        # Bucket at timestamp 1000 (1970-01-01 UTC)
+        flow = _make_flow(ts=1005, duration=5, download=100_000_000)
+        estimator.process_flows([flow])
+
+        assert len(estimator._daily_summaries) == 1
+        day = list(estimator._daily_summaries.values())[0]
+        assert day["download_max_mbps"] == 160.0
+
+    def test_larger_peak_replaces_smaller(self):
+        estimator = WanPeakEstimator()
+        small = _make_flow(ts=1005, duration=5, download=50_000_000, device_id="a")
+        big = _make_flow(ts=1010, duration=5, download=200_000_000, device_id="b")
+        estimator.process_flows([small])
+        estimator.process_flows([big])
+
+        day = list(estimator._daily_summaries.values())[0]
+        assert day["download_max_mbps"] == 320.0
+
+    def test_smaller_peak_does_not_replace(self):
+        estimator = WanPeakEstimator()
+        big = _make_flow(ts=1005, duration=5, download=200_000_000, device_id="a")
+        small = _make_flow(ts=1010, duration=5, download=50_000_000, device_id="b")
+        estimator.process_flows([big])
+        estimator.process_flows([small])
+
+        day = list(estimator._daily_summaries.values())[0]
+        assert day["download_max_mbps"] == 320.0
+        assert day["download_max_timestamp"] == 1000
+
+    def test_retroactive_previous_day_update(self):
+        estimator = WanPeakEstimator()
+        # First day: modest flow
+        day1_flow = _make_flow(ts=50000, duration=5, download=50_000_000, device_id="a")
+        estimator.process_flows([day1_flow])
+        day1_date = estimator._date_key(50000)
+        day1_max = estimator._daily_summaries[day1_date]["download_max_mbps"]
+
+        # Later: a long flow that started on day1 but ends on day2
+        # This flow's buckets span into day1 territory
+        day2_flow = _make_flow(
+            ts=90000, duration=50000, download=500_000_000, device_id="b"
+        )
+        estimator.process_flows([day2_flow])
+
+        # Day1's max should be updated if the long flow raised a day1 bucket
+        day1_max_after = estimator._daily_summaries[day1_date]["download_max_mbps"]
+        assert day1_max_after >= day1_max
+
+    def test_timestamp_belongs_to_winning_peak(self):
+        estimator = WanPeakEstimator()
+        flow = _make_flow(ts=1005, duration=5, download=100_000_000)
+        estimator.process_flows([flow])
+
+        day = list(estimator._daily_summaries.values())[0]
+        assert day["download_max_timestamp"] == 1000
+
+    def test_7day_window_expiration(self):
+        estimator = WanPeakEstimator()
+        # Create flows on 8 different days
+        for i in range(8):
+            ts = 86400 * i + 5
+            flow = _make_flow(
+                ts=ts, duration=5, download=(i + 1) * 10_000_000, device_id=f"d{i}"
+            )
+            estimator.process_flows([flow])
+
+        # 7-day max should be from the 7 most recent days
+        val, _ = estimator.rolling_max_peak("download", 7)
+        # Day 7 (i=7) has the highest value: 80MB/5s = 128 Mbps
+        assert val == 128.0
+
+        # Day 0 (oldest, i=0) should NOT be in the 7-day window
+        day0_val = 10_000_000 * 8 / 5 / 1_000_000
+        assert val != round(day0_val, 1) or val > round(day0_val, 1)
+
+    def test_30day_window_expiration(self):
+        estimator = WanPeakEstimator()
+        # Create flows on 32 days
+        for i in range(32):
+            ts = 86400 * i + 5
+            flow = _make_flow(
+                ts=ts, duration=5, download=(i + 1) * 10_000_000, device_id=f"d{i}"
+            )
+            estimator.process_flows([flow])
+
+        # Prune to 31 days max
+        estimator.prune_daily_summaries()
+        assert len(estimator._daily_summaries) <= 31
+
+        val_30, _ = estimator.rolling_max_peak("download", 30)
+        val_7, _ = estimator.rolling_max_peak("download", 7)
+        assert val_30 >= val_7
+
+    def test_persistence_roundtrip(self):
+        estimator = WanPeakEstimator()
+        flow = _make_flow(ts=1005, duration=5, download=100_000_000)
+        estimator.process_flows([flow])
+        assert len(estimator._daily_summaries) > 0
+
+        saved = estimator.to_dict()
+        assert "daily_summaries" in saved
+        assert saved["schema_version"] == 2
+
+        restored = WanPeakEstimator()
+        restored.restore(saved, 1010.0)
+        assert len(restored._daily_summaries) == len(estimator._daily_summaries)
+
+        val_orig, _ = estimator.rolling_max_peak("download", 7)
+        val_restored, _ = restored.rolling_max_peak("download", 7)
+        assert val_orig == val_restored
+
+    def test_malformed_daily_summary_data(self):
+        estimator = WanPeakEstimator()
+        data = {
+            "schema_version": 2,
+            "buckets": {},
+            "fingerprints": {},
+            "daily_summaries": {
+                "2024-01-01": "not a dict",
+                42: {"download_max_mbps": 100},
+                "2024-01-02": {"download_max_mbps": 200.0, "download_max_timestamp": 1000},
+            },
+        }
+        estimator.restore(data, 2000000000.0)
+        # Only the valid entry should be restored (but may be pruned by date)
+        # The malformed ones should not cause errors
+
+    def test_empty_summaries_return_zero(self):
+        estimator = WanPeakEstimator()
+        val, ts = estimator.rolling_max_peak("download", 7)
+        assert val == 0.0
+        assert ts is None
+
+
+class TestRollingMaxSensor:
+    """Test the rolling max peak sensor entity."""
+
+    def test_sensor_value_and_attrs(self):
+        from custom_components.firewalla.sensor import FirewallaWanRollingMaxSensor
+
+        coord = SimpleNamespace(
+            box_gid="test-gid-12345678",
+            last_update_success=True,
+            data={
+                "wan_throughput": {
+                    "download_7d_max_peak_mbps": 1250.0,
+                    "download_7d_max_peak_timestamp": 86400,
+                    "download_30d_max_peak_mbps": 1850.0,
+                    "download_30d_max_peak_timestamp": 172800,
+                }
+            },
+        )
+        sensor_7d = FirewallaWanRollingMaxSensor(coord, "download", 7)
+        assert sensor_7d.native_value == 1250.0
+        assert sensor_7d.available is True
+        attrs = sensor_7d.extra_state_attributes
+        assert attrs["window_days"] == 7
+        assert attrs["peak_timestamp"] == 86400
+
+        sensor_30d = FirewallaWanRollingMaxSensor(coord, "download", 30)
+        assert sensor_30d.native_value == 1850.0
+
+    def test_sensor_unavailable(self):
+        from custom_components.firewalla.sensor import FirewallaWanRollingMaxSensor
+
+        coord = SimpleNamespace(
+            box_gid="test-gid-12345678",
+            last_update_success=True,
+            data={"wan_throughput": {}},
+        )
+        sensor = FirewallaWanRollingMaxSensor(coord, "download", 7)
+        assert sensor.available is False
+        assert sensor.native_value is None

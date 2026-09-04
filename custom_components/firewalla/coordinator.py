@@ -1020,6 +1020,13 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
             throughput[f"{direction}_max_peak_mbps"] = max_val
             throughput[f"{direction}_max_peak_timestamp"] = max_ts
 
+        # Rolling long-term peaks from daily summaries
+        for direction in ("download", "upload"):
+            for window in (7, 30):
+                val, ts = self._wan_peak_estimator.rolling_max_peak(direction, window)
+                throughput[f"{direction}_{window}d_max_peak_mbps"] = val
+                throughput[f"{direction}_{window}d_max_peak_timestamp"] = ts
+
         if self._wan_download_capacity > 0:
             throughput["download_near_capacity_minutes"] = (
                 self._wan_peak_estimator.near_capacity_minutes(
