@@ -1003,6 +1003,7 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
                 _LOGGER.debug("WAN peak detail fetch failed: %s", err)
 
         self._wan_peak_estimator.prune(end_ts)
+        self._wan_peak_estimator.prune_daily_summaries(now=end_ts)
 
         if peak_data is not None:
             self._wan_last_peak = peak_data
@@ -1023,7 +1024,7 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
         # Rolling long-term peaks from daily summaries
         for direction in ("download", "upload"):
             for window in (7, 30):
-                val, ts = self._wan_peak_estimator.rolling_max_peak(direction, window)
+                val, ts = self._wan_peak_estimator.rolling_max_peak(direction, window, now=end_ts)
                 throughput[f"{direction}_{window}d_max_peak_mbps"] = val
                 throughput[f"{direction}_{window}d_max_peak_timestamp"] = ts
 

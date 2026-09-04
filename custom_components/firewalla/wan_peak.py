@@ -145,7 +145,6 @@ class WanPeakEstimator:
                 total_peak_ts = bts
 
         self.update_daily_summaries(touched_buckets)
-        self.prune_daily_summaries()
 
         return {
             "download_peak_mbps": round(dl_peak, 1),
@@ -256,27 +255,42 @@ class WanPeakEstimator:
                 day["upload_max_mbps"] = round(ul, 1)
                 day["upload_max_timestamp"] = bts
 
-    def prune_daily_summaries(self) -> None:
-        """Keep only the most recent daily summaries."""
-        if len(self._daily_summaries) <= _DAILY_SUMMARY_RETENTION:
-            return
-        sorted_dates = sorted(self._daily_summaries.keys())
-        for date in sorted_dates[:-_DAILY_SUMMARY_RETENTION]:
-            del self._daily_summaries[date]
+    def prune_daily_summaries(self, now: float | None = None) -> None:
+        """Remove summaries older than the retention window in calendar days."""
+        if now is None:
+            import time
+
+            now = time.time()
+        today = datetime.fromtimestamp(now, tz=timezone.utc).date()
+        from datetime import timedelta as _td
+
+        oldest_kept = (today - _td(days=_DAILY_SUMMARY_RETENTION - 1)).isoformat()
+        stale = [d for d in self._daily_summaries if d < oldest_kept]
+        for d in stale:
+            del self._daily_summaries[d]
 
     def rolling_max_peak(
-        self, direction: str, window_days: int
+        self, direction: str, window_days: int, now: float | None = None
     ) -> tuple[float, int | None]:
-        """Return the max peak over the most recent N calendar days."""
+        """Return the max peak over the preceding window_days calendar days."""
         if not self._daily_summaries:
             return 0.0, None
 
-        sorted_dates = sorted(self._daily_summaries.keys(), reverse=True)
+        if now is None:
+            import time
+
+            now = time.time()
+        today = datetime.fromtimestamp(now, tz=timezone.utc).date()
+        from datetime import timedelta as _td
+
+        earliest = (today - _td(days=window_days - 1)).isoformat()
+
         best_value = 0.0
         best_ts = None
 
-        for date in sorted_dates[:window_days]:
-            day = self._daily_summaries[date]
+        for date, day in self._daily_summaries.items():
+            if date < earliest:
+                continue
             key = f"{direction}_max_mbps"
             ts_key = f"{direction}_max_timestamp"
             val = day.get(key, 0.0)
@@ -319,4 +333,4 @@ class WanPeakEstimator:
                 if isinstance(date, str) and isinstance(summary, dict):
                     self._daily_summaries[date] = summary
         self.prune(now)
-        self.prune_daily_summaries()
+        self.prune_daily_summaries(now=now)

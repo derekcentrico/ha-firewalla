@@ -933,40 +933,41 @@ class TestDailySummaries:
 
     def test_7day_window_expiration(self):
         estimator = WanPeakEstimator()
-        # Create flows on 8 different days
+        # Create flows on 8 different days starting from a known base
+        base = 1725400000  # ~Sep 3 2024 UTC
         for i in range(8):
-            ts = 86400 * i + 5
+            ts = base + 86400 * i + 5
             flow = _make_flow(
                 ts=ts, duration=5, download=(i + 1) * 10_000_000, device_id=f"d{i}"
             )
             estimator.process_flows([flow])
 
-        # 7-day max should be from the 7 most recent days
-        val, _ = estimator.rolling_max_peak("download", 7)
+        now = base + 86400 * 7 + 100
+        # 7-day window from "today" (day 7) back to day 1
+        val, _ = estimator.rolling_max_peak("download", 7, now=now)
         # Day 7 (i=7) has the highest value: 80MB/5s = 128 Mbps
         assert val == 128.0
 
-        # Day 0 (oldest, i=0) should NOT be in the 7-day window
-        day0_val = 10_000_000 * 8 / 5 / 1_000_000
-        assert val != round(day0_val, 1) or val > round(day0_val, 1)
-
     def test_30day_window_expiration(self):
         estimator = WanPeakEstimator()
-        # Create flows on 32 days
+        base = 1725400000
         for i in range(32):
-            ts = 86400 * i + 5
+            ts = base + 86400 * i + 5
             flow = _make_flow(
                 ts=ts, duration=5, download=(i + 1) * 10_000_000, device_id=f"d{i}"
             )
             estimator.process_flows([flow])
 
-        # Prune to 31 days max
-        estimator.prune_daily_summaries()
-        assert len(estimator._daily_summaries) <= 31
+        now = base + 86400 * 31 + 100
+        estimator.prune_daily_summaries(now=now)
+        # 32 days of data, retention is 31 days; day 0 should be pruned
+        assert len(estimator._daily_summaries) == 31
 
-        val_30, _ = estimator.rolling_max_peak("download", 30)
-        val_7, _ = estimator.rolling_max_peak("download", 7)
+        val_30, _ = estimator.rolling_max_peak("download", 30, now=now)
+        val_7, _ = estimator.rolling_max_peak("download", 7, now=now)
         assert val_30 >= val_7
+        # Day 0 (oldest) should be excluded from 30d window
+        assert val_30 > 0
 
     def test_persistence_roundtrip(self):
         estimator = WanPeakEstimator()
@@ -1048,3 +1049,103 @@ class TestRollingMaxSensor:
         sensor = FirewallaWanRollingMaxSensor(coord, "download", 7)
         assert sensor.available is False
         assert sensor.native_value is None
+
+
+class TestSparseTrafficWindows:
+    """Verify calendar-day windows exclude old peaks even with sparse data."""
+
+    def test_peak_8_days_ago_excluded_from_7d(self):
+        estimator = WanPeakEstimator()
+        base = 1725400000  # known UTC timestamp
+
+        # Big peak 8 days ago
+        old_flow = _make_flow(
+            ts=base + 5, duration=5, download=500_000_000, device_id="old"
+        )
+        estimator.process_flows([old_flow])
+
+        # Small peak today (8 days later)
+        today_ts = base + 86400 * 8 + 5
+        new_flow = _make_flow(
+            ts=today_ts, duration=5, download=10_000_000, device_id="new"
+        )
+        estimator.process_flows([new_flow])
+
+        now = base + 86400 * 8 + 100
+        val_7d, _ = estimator.rolling_max_peak("download", 7, now=now)
+
+        # Old 800 Mbps peak must NOT appear in 7d window
+        assert val_7d < 100.0
+        # Only today's small peak: 10M*8/5/1M = 16 Mbps
+        assert val_7d == 16.0
+
+    def test_peak_31_days_ago_excluded_from_30d(self):
+        estimator = WanPeakEstimator()
+        base = 1725400000
+
+        # Big peak 31 days ago
+        old_flow = _make_flow(
+            ts=base + 5, duration=5, download=500_000_000, device_id="old"
+        )
+        estimator.process_flows([old_flow])
+
+        # Small peak today (31 days later)
+        today_ts = base + 86400 * 31 + 5
+        new_flow = _make_flow(
+            ts=today_ts, duration=5, download=10_000_000, device_id="new"
+        )
+        estimator.process_flows([new_flow])
+
+        now = base + 86400 * 31 + 100
+        val_30d, _ = estimator.rolling_max_peak("download", 30, now=now)
+
+        assert val_30d == 16.0
+
+    def test_missing_days_do_not_extend_window(self):
+        estimator = WanPeakEstimator()
+        base = 1725400000
+
+        # Peak on day 0
+        flow_0 = _make_flow(
+            ts=base + 5, duration=5, download=200_000_000, device_id="d0"
+        )
+        estimator.process_flows([flow_0])
+
+        # Skip days 1-8, peak on day 9
+        flow_9 = _make_flow(
+            ts=base + 86400 * 9 + 5, duration=5, download=50_000_000, device_id="d9"
+        )
+        estimator.process_flows([flow_9])
+
+        now = base + 86400 * 9 + 100
+        val_7d, _ = estimator.rolling_max_peak("download", 7, now=now)
+
+        # Day 0 is outside 7-day window from day 9 (eligible: days 3-9)
+        # Only day 9's 80 Mbps should be included
+        assert val_7d == 80.0
+
+    def test_persisted_sparse_summaries_restore_correctly(self):
+        estimator = WanPeakEstimator()
+        base = 1725400000
+
+        flow_old = _make_flow(
+            ts=base + 5, duration=5, download=300_000_000, device_id="old"
+        )
+        estimator.process_flows([flow_old])
+
+        flow_new = _make_flow(
+            ts=base + 86400 * 10 + 5, duration=5, download=50_000_000, device_id="new"
+        )
+        estimator.process_flows([flow_new])
+
+        saved = estimator.to_dict()
+        restored = WanPeakEstimator()
+        now = base + 86400 * 10 + 100
+        restored.restore(saved, now)
+
+        # Both summaries should be restored
+        assert len(restored._daily_summaries) == 2
+
+        # 7d window should only include day 10
+        val_7d, _ = restored.rolling_max_peak("download", 7, now=now)
+        assert val_7d == 80.0
