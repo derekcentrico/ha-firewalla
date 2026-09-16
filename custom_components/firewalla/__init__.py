@@ -12,7 +12,9 @@ from homeassistant.exceptions import (
     ConfigEntryNotReady,
     HomeAssistantError,
 )
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import (
     CONF_ACCESS_TOKEN,
@@ -35,6 +37,8 @@ from .const import (
     DEFAULT_WAN_DOWNLOAD_CAPACITY,
     DEFAULT_WAN_SAMPLE_INTERVAL,
     DEFAULT_WAN_UPLOAD_CAPACITY,
+    DEVICE_MANUFACTURER,
+    DEVICE_MODEL_MAPPINGS,
     DOMAIN,
     PLATFORMS,
 )
@@ -281,6 +285,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         await coordinator.async_restore_wan_state()
         await coordinator.async_config_entry_first_refresh()
+
+        try:
+            box_info = {}
+            if coordinator.data and "box_info" in coordinator.data:
+                box_info = coordinator.data["box_info"]
+            box_name = box_info.get("name", f"Firewalla Box {box_gid[:8]}")
+            box_model = box_info.get("model", "unknown")
+
+            dev_reg = dr.async_get(hass)
+            box_device = dev_reg.async_get_or_create(
+                config_entry_id=entry.entry_id,
+                identifiers={(DOMAIN, box_gid)},
+                name=box_name,
+                manufacturer=DEVICE_MANUFACTURER,
+                model=DEVICE_MODEL_MAPPINGS.get(
+                    box_model, f"Firewalla {box_model.title()}"
+                ),
+                sw_version=box_info.get("version"),
+            )
+            coordinator.box_device_id = box_device.id
+        except Exception:
+            pass
 
         hass.data.setdefault(DOMAIN, {})
         hass.data[DOMAIN][entry.entry_id] = coordinator
