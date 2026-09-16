@@ -39,24 +39,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Firewalla rule statistics sensor entities from a config entry."""
-    _LOGGER.debug(
-        "Setting up Firewalla rule statistics sensor platform for entry %s",
-        config_entry.entry_id,
-    )
-
     try:
-        # Get coordinator from hass.data
         coordinator: FirewallaDataUpdateCoordinator = hass.data[DOMAIN][
             config_entry.entry_id
         ]
 
-        # Create the rules summary sensor
         entities = []
 
         try:
             rules_sensor = FirewallaRulesSensor(coordinator)
             entities.append(rules_sensor)
-            _LOGGER.debug("Created rules summary sensor")
         except Exception as err:
             _LOGGER.error("Error creating rules summary sensor: %s", err)
 
@@ -64,9 +56,9 @@ async def async_setup_entry(
         entities.append(FirewallaWanSensor(coordinator, "download"))
         entities.append(FirewallaWanSensor(coordinator, "upload"))
         entities.append(FirewallaWanSensor(coordinator, "total"))
-        if getattr(coordinator, "_wan_download_capacity", 0) > 0:
+        if (getattr(coordinator, "_wan_download_capacity", 0) or 0) > 0:
             entities.append(FirewallaWanUtilizationSensor(coordinator, "download"))
-        if getattr(coordinator, "_wan_upload_capacity", 0) > 0:
+        if (getattr(coordinator, "_wan_upload_capacity", 0) or 0) > 0:
             entities.append(FirewallaWanUtilizationSensor(coordinator, "upload"))
 
         # WAN peak estimate sensors (always created)
@@ -87,17 +79,13 @@ async def async_setup_entry(
                 )
 
         # WAN near-capacity sensors (only when capacity is configured)
-        if getattr(coordinator, "_wan_download_capacity", 0) > 0:
+        if (getattr(coordinator, "_wan_download_capacity", 0) or 0) > 0:
             entities.append(FirewallaWanNearCapacitySensor(coordinator, "download"))
-        if getattr(coordinator, "_wan_upload_capacity", 0) > 0:
+        if (getattr(coordinator, "_wan_upload_capacity", 0) or 0) > 0:
             entities.append(FirewallaWanNearCapacitySensor(coordinator, "upload"))
 
         if entities:
             async_add_entities(entities)
-            _LOGGER.info(
-                "Successfully added %d Firewalla sensor entities",
-                len(entities),
-            )
         else:
             _LOGGER.warning("No valid sensor entities could be created")
             async_add_entities([])
@@ -172,21 +160,8 @@ async def async_setup_entry(
         )
 
     except KeyError as err:
-        _LOGGER.error(
-            "Missing coordinator data for config entry %s: %s",
-            config_entry.entry_id,
-            err,
-        )
         raise HomeAssistantError(
             f"Coordinator not found for Firewalla integration: {err}"
-        ) from err
-    except Exception as err:
-        _LOGGER.exception(
-            "Unexpected error setting up Firewalla rule statistics sensor platform: %s",
-            err,
-        )
-        raise HomeAssistantError(
-            f"Failed to set up Firewalla rule statistics sensor platform: {err}"
         ) from err
 
 
@@ -241,20 +216,9 @@ class FirewallaRulesSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> int:
         """Return the total count of discovered rules."""
-        try:
-            if not self.coordinator.data or "rule_count" not in self.coordinator.data:
-                _LOGGER.debug("No rule count data available")
-                return 0
-
-            rule_count = self.coordinator.data["rule_count"]
-            total_rules = rule_count.get("total", 0)
-
-            _LOGGER.debug("Total rules count: %d", total_rules)
-            return total_rules
-
-        except Exception as err:
-            _LOGGER.error("Error getting total rules count: %s", err)
+        if not self.coordinator.data or "rule_count" not in self.coordinator.data:
             return 0
+        return self.coordinator.data["rule_count"].get("total", 0)
 
     @property
     def available(self) -> bool:
@@ -336,17 +300,6 @@ class FirewallaRulesSensor(CoordinatorEntity, SensorEntity):
         except Exception:
             return "mdi:shield-outline"
 
-    async def async_added_to_hass(self) -> None:
-        """When entity is added to hass."""
-        await super().async_added_to_hass()
-        _LOGGER.debug("Rules summary sensor entity added to hass: %s", self.name)
-
-    async def async_will_remove_from_hass(self) -> None:
-        """When entity will be removed from hass."""
-        await super().async_will_remove_from_hass()
-        _LOGGER.debug(
-            "Rules summary sensor entity being removed from hass: %s", self.name
-        )
 
 
 class FirewallaTimeLimitSensor(CoordinatorEntity, SensorEntity):
@@ -771,7 +724,7 @@ class FirewallaWanNearCapacitySensor(CoordinatorEntity, SensorEntity):
             return {}
         capacity = getattr(self.coordinator, f"_wan_{self._direction}_capacity", 0)
         dist_key = f"{self._direction}_capacity_distribution"
-        dist = wan.get(dist_key, {})
+        dist = wan.get(dist_key) or {}
         max_key = f"{self._direction}_max_peak_mbps"
         max_val = wan.get(max_key, 0.0) if isinstance(wan, dict) else 0.0
         max_util_key = f"{self._direction}_max_utilization_pct"

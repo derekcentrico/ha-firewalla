@@ -349,25 +349,20 @@ class FirewallaMSPClient:
     async def authenticate(self) -> bool:
         """Authenticate with the MSP API and validate the token."""
         try:
-            _LOGGER.debug("Attempting MSP API authentication")
             # Test authentication by fetching rules list
             response = await self._make_request(
                 "GET", API_ENDPOINTS["rules"], retry_auth=False
             )
             if response is not None:
                 self._authenticated = True
-                _LOGGER.info("MSP API authentication successful")
                 return True
-            else:
-                _LOGGER.error("MSP API authentication failed: Invalid response")
-                return False
+            _LOGGER.error("MSP API authentication failed: invalid response")
+            return False
         except ConfigEntryAuthFailed as err:
             _LOGGER.error("MSP API authentication failed: %s", err)
             return False
         except Exception as err:
-            _LOGGER.exception(
-                "MSP API authentication failed with unexpected error: %s", err
-            )
+            _LOGGER.error("MSP API authentication failed: %s", err)
             return False
 
     async def _make_request(
@@ -399,15 +394,6 @@ class FirewallaMSPClient:
                     timeout=timeout,
                     **kwargs,
                 ) as response:
-                    _LOGGER.debug(
-                        "MSP API request: %s %s (attempt %d/%d) - Status: %d",
-                        method,
-                        url,
-                        attempt + 1,
-                        RETRY_ATTEMPTS,
-                        response.status,
-                    )
-
                     # Handle authentication errors
                     if response.status == 401:
                         if retry_auth:
@@ -472,7 +458,6 @@ class FirewallaMSPClient:
                     # Success - parse response
                     try:
                         result = await response.json()
-                        _LOGGER.debug("MSP API response received successfully")
                         return result
                     except aiohttp.ContentTypeError:
                         # Handle non-JSON responses (e.g., for pause/resume operations)
@@ -739,11 +724,6 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
             last_peak = stored.get("last_peak")
             if isinstance(last_peak, dict):
                 self._wan_last_peak = last_peak
-            _LOGGER.debug(
-                "Restored WAN peak state: %d buckets, %d fingerprints",
-                len(self._wan_peak_estimator._buckets),
-                len(self._wan_peak_estimator._fingerprints),
-            )
         except Exception as err:
             _LOGGER.debug("Could not restore WAN peak state: %s", err)
 
@@ -765,16 +745,9 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch rule data from MSP API with automatic rule change detection."""
-        _LOGGER.debug("Starting MSP API data update for box %s", self.box_gid)
-
         try:
-            # Ensure we're authenticated
             if not self.api.is_authenticated:
-                _LOGGER.debug(
-                    "API not authenticated, attempting initial authentication"
-                )
                 if not await self.api.authenticate():
-                    _LOGGER.error("MSP API authentication failed during data update")
                     raise ConfigEntryAuthFailed("MSP API authentication failed")
 
             self._poll_count += 1
@@ -791,13 +764,10 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
             )
 
             if is_full_rules_poll:
-                _LOGGER.debug("Full rules refresh (poll %d)", self._poll_count)
                 rules_response = await self._fetch_filtered_rules()
                 rules_data = self._process_rules_data(rules_response)
                 self._cached_full_rules = rules_data
             else:
-                # Lightweight poll: only timelimit rules (~5.5KB vs ~55KB)
-                _LOGGER.debug("Timelimit-only refresh (poll %d)", self._poll_count)
                 tl_response = await self.api.get_rules("action:timelimit")
                 tl_data = self._process_rules_data(tl_response)
                 # Merge updated timelimit data into cached full rules
@@ -873,12 +843,6 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
             # Update previous rules for next comparison
             self._previous_rules = rules_data.copy()
 
-            _LOGGER.debug(
-                "Successfully updated rule data from MSP API: %d rules (%d active, %d paused)",
-                rule_stats["total"],
-                rule_stats["active"],
-                rule_stats["paused"],
-            )
             return processed_data
 
         except ConfigEntryAuthFailed:
@@ -1071,17 +1035,11 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
 
         # If no filters are specified, fetch all rules
         if not self.include_filters and not self.exclude_filters:
-            _LOGGER.debug("No filters specified, fetching all rules")
             return await self.api.get_rules()
 
-        # Apply include filters
         if self.include_filters:
-            _LOGGER.debug("Applying %d include filters", len(self.include_filters))
             for filter_query in self.include_filters:
                 try:
-                    _LOGGER.debug(
-                        "Fetching rules with include filter: %s", filter_query
-                    )
                     filtered_response = await self.api.get_rules(filter_query)
 
                     if (
@@ -1101,23 +1059,15 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
                     )
                     continue
         else:
-            # No include filters, start with all rules
-            _LOGGER.debug("No include filters, starting with all rules")
             all_rules = await self.api.get_rules()
 
         # Apply exclude filters
         if self.exclude_filters:
-            _LOGGER.debug("Applying %d exclude filters", len(self.exclude_filters))
             rules_to_exclude = set()
 
             for filter_query in self.exclude_filters:
                 try:
-                    # Remove the '-' prefix if present (it's handled by the query logic)
                     clean_query = filter_query.lstrip("-")
-                    _LOGGER.debug(
-                        "Fetching rules to exclude with filter: %s", clean_query
-                    )
-
                     exclude_response = await self.api.get_rules(clean_query)
 
                     if (
@@ -1135,27 +1085,14 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
 
             # Remove excluded rules
             if rules_to_exclude:
-                original_count = len(all_rules["results"])
                 all_rules["results"] = [
                     rule
                     for rule in all_rules["results"]
                     if rule["id"] not in rules_to_exclude
                 ]
-                excluded_count = original_count - len(all_rules["results"])
-                _LOGGER.debug(
-                    "Excluded %d rules based on exclude filters", excluded_count
-                )
 
         # Update count
         all_rules["count"] = len(all_rules["results"])
-
-        _LOGGER.debug(
-            "Rule filtering complete: %d rules after applying %d include and %d exclude filters",
-            all_rules["count"],
-            len(self.include_filters),
-            len(self.exclude_filters),
-        )
-
         return all_rules
 
     def _process_rules_data(
@@ -1170,21 +1107,11 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
         rules_list = []
         if isinstance(rules_response, list):
             rules_list = rules_response
-            _LOGGER.debug(
-                "Rules response is direct array with %d items", len(rules_list)
-            )
         elif isinstance(rules_response, dict):
             if "results" in rules_response:
                 rules_list = rules_response["results"]
-                _LOGGER.debug(
-                    "Rules response has 'results' key with %d items", len(rules_list)
-                )
             else:
                 rules_list = list(rules_response.values()) if rules_response else []
-                _LOGGER.debug(
-                    "Rules response is dict, converted to list with %d items",
-                    len(rules_list),
-                )
         else:
             _LOGGER.error(
                 "Invalid rules response format: expected dict or list, got %s",
@@ -1198,7 +1125,6 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
         for rule_info in rules_list:
             try:
                 if not isinstance(rule_info, dict):
-                    _LOGGER.debug("Skipping invalid rule data: %s", type(rule_info))
                     invalid_rules += 1
                     continue
 
@@ -1315,8 +1241,6 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
 
         if invalid_rules > 0:
             _LOGGER.warning("Skipped %d invalid rule entries", invalid_rules)
-
-        _LOGGER.debug("Processed %d valid rules", len(processed_rules))
         return processed_rules
 
     def _describe_rule(self, rule: Dict[str, Any]) -> str:
@@ -1416,14 +1340,6 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
             detail = ", ".join(detail_parts) if detail_parts else "modified"
             _LOGGER.info("Rule %s: %s [%s]", detail, desc, rule_id)
 
-        if any(changes.values()):
-            _LOGGER.debug(
-                "Rule changes summary: %d added, %d removed, %d modified",
-                len(changes["added"]),
-                len(changes["removed"]),
-                len(changes["modified"]),
-            )
-
         return changes
 
     def _calculate_rule_statistics(self, rules_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -1455,14 +1371,9 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
             if not query and self.data and "rules" in self.data:
                 return self.data["rules"]
 
-            # Fetch from API with optional query
-            _LOGGER.debug("Fetching rules from API with query: %s", query)
             response = await self.api.get_rules(query)
-
             if response:
-                processed_rules = self._process_rules_data(response)
-                _LOGGER.debug("Retrieved %d rules from API", len(processed_rules))
-                return processed_rules
+                return self._process_rules_data(response)
 
             _LOGGER.warning("No rules data received from API")
             return {}
@@ -1474,22 +1385,14 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
     async def async_pause_rule(self, rule_id: str) -> bool:
         """Pause a rule to temporarily disable it while preserving configuration."""
         try:
-            _LOGGER.debug("Pausing rule %s", rule_id)
-
             if not rule_id:
                 raise ValueError("Rule ID cannot be empty")
 
             result = await self.api.pause_rule(rule_id)
-
             if result:
-                _LOGGER.info("Successfully paused rule: %s", rule_id)
-                # No refresh needed — switch entities do optimistic updates,
-                # and the next regular 30s poll confirms the state.
                 return True
-            else:
-                _LOGGER.error("Failed to pause rule %s: Invalid API response", rule_id)
-                return False
-
+            _LOGGER.error("Failed to pause rule %s: invalid API response", rule_id)
+            return False
         except Exception as err:
             _LOGGER.error("Failed to pause rule %s: %s", rule_id, err)
             return False
@@ -1497,22 +1400,14 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
     async def async_resume_rule(self, rule_id: str) -> bool:
         """Resume a paused rule to re-enable it."""
         try:
-            _LOGGER.debug("Resuming rule %s", rule_id)
-
             if not rule_id:
                 raise ValueError("Rule ID cannot be empty")
 
             result = await self.api.resume_rule(rule_id)
-
             if result:
-                _LOGGER.info("Successfully resumed rule: %s", rule_id)
-                # No refresh needed — switch entities do optimistic updates,
-                # and the next regular 30s poll confirms the state.
                 return True
-            else:
-                _LOGGER.error("Failed to resume rule %s: Invalid API response", rule_id)
-                return False
-
+            _LOGGER.error("Failed to resume rule %s: invalid API response", rule_id)
+            return False
         except Exception as err:
             _LOGGER.error("Failed to resume rule %s: %s", rule_id, err)
             return False
@@ -1520,19 +1415,14 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
     async def async_get_rule_status(self, rule_id: str) -> Optional[Dict[str, Any]]:
         """Get individual rule status for verification."""
         try:
-            _LOGGER.debug("Getting status for rule %s", rule_id)
-
             if not rule_id:
                 raise ValueError("Rule ID cannot be empty")
 
             result = await self.api.get_rule_status(rule_id)
-
             if result:
-                _LOGGER.debug("Retrieved status for rule %s", rule_id)
                 return result
-            else:
-                _LOGGER.warning("No status data received for rule %s", rule_id)
-                return None
+            _LOGGER.warning("No status data received for rule %s", rule_id)
+            return None
 
         except Exception as err:
             _LOGGER.error("Failed to get rule status for %s: %s", rule_id, err)
