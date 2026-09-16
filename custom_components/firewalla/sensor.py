@@ -56,9 +56,9 @@ async def async_setup_entry(
         entities.append(FirewallaWanSensor(coordinator, "download"))
         entities.append(FirewallaWanSensor(coordinator, "upload"))
         entities.append(FirewallaWanSensor(coordinator, "total"))
-        if getattr(coordinator, "_wan_download_capacity", 0) > 0:
+        if (getattr(coordinator, "_wan_download_capacity", 0) or 0) > 0:
             entities.append(FirewallaWanUtilizationSensor(coordinator, "download"))
-        if getattr(coordinator, "_wan_upload_capacity", 0) > 0:
+        if (getattr(coordinator, "_wan_upload_capacity", 0) or 0) > 0:
             entities.append(FirewallaWanUtilizationSensor(coordinator, "upload"))
 
         # WAN peak estimate sensors (always created)
@@ -79,9 +79,9 @@ async def async_setup_entry(
                 )
 
         # WAN near-capacity sensors (only when capacity is configured)
-        if getattr(coordinator, "_wan_download_capacity", 0) > 0:
+        if (getattr(coordinator, "_wan_download_capacity", 0) or 0) > 0:
             entities.append(FirewallaWanNearCapacitySensor(coordinator, "download"))
-        if getattr(coordinator, "_wan_upload_capacity", 0) > 0:
+        if (getattr(coordinator, "_wan_upload_capacity", 0) or 0) > 0:
             entities.append(FirewallaWanNearCapacitySensor(coordinator, "upload"))
 
         if entities:
@@ -724,7 +724,7 @@ class FirewallaWanNearCapacitySensor(CoordinatorEntity, SensorEntity):
             return {}
         capacity = getattr(self.coordinator, f"_wan_{self._direction}_capacity", 0)
         dist_key = f"{self._direction}_capacity_distribution"
-        dist = wan.get(dist_key, {})
+        dist = wan.get(dist_key) or {}
         max_key = f"{self._direction}_max_peak_mbps"
         max_val = wan.get(max_key, 0.0) if isinstance(wan, dict) else 0.0
         max_util_key = f"{self._direction}_max_utilization_pct"
