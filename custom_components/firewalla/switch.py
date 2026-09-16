@@ -11,7 +11,7 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -567,21 +567,12 @@ class FirewallaGroupInternetSwitch(CoordinatorEntity, SwitchEntity):
     def _build_device_info(self) -> DeviceInfo:
         group = self._get_group_data()
         group_name = group["name"] if group else self._group_id
-        via_id = None
-        try:
-            dev_reg = dr.async_get(self.coordinator.hass)
-            parent = dev_reg.async_get_device(
-                identifiers={(DOMAIN, self.coordinator.box_gid)}
-            )
-            via_id = parent.id if parent else None
-        except (AttributeError, TypeError):
-            pass
         return DeviceInfo(
             identifiers={(DOMAIN, f"group_{self._group_id}")},
             name=group_name,
             manufacturer=DEVICE_MANUFACTURER,
             model="Group",
-            via_device_id=via_id,
+            via_device=(DOMAIN, self.coordinator.box_gid),
         )
 
     @property
@@ -689,21 +680,12 @@ class FirewallaGroupRuleSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_unique_id = f"firewalla_group_{group_id}_rule_{rule_id}"
         self._attr_name = f"{action} {target}"
         self._attr_icon = "mdi:shield-lock"
-        via_id = None
-        try:
-            dev_reg = dr.async_get(coordinator.hass)
-            parent = dev_reg.async_get_device(
-                identifiers={(DOMAIN, coordinator.box_gid)}
-            )
-            via_id = parent.id if parent else None
-        except (AttributeError, TypeError):
-            pass
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"group_{group_id}")},
             name=group_name,
             manufacturer=DEVICE_MANUFACTURER,
             model="Group",
-            via_device_id=via_id,
+            via_device=(DOMAIN, coordinator.box_gid),
         )
 
     def _get_group_data(self) -> dict[str, Any] | None:

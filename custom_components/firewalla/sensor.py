@@ -14,7 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfDataRate
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -332,21 +332,12 @@ class FirewallaTimeLimitSensor(CoordinatorEntity, SensorEntity):
         if affiliated_group and coordinator.data and "groups" in coordinator.data:
             group_data = coordinator.data["groups"].get(affiliated_group)
         if group_data:
-            via_id = None
-            try:
-                dev_reg = dr.async_get(coordinator.hass)
-                parent = dev_reg.async_get_device(
-                    identifiers={(DOMAIN, coordinator.box_gid)}
-                )
-                via_id = parent.id if parent else None
-            except (AttributeError, TypeError):
-                pass
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, f"group_{affiliated_group}")},
                 name=group_data["name"],
                 manufacturer=DEVICE_MANUFACTURER,
                 model="Group",
-                via_device_id=via_id,
+                via_device=(DOMAIN, coordinator.box_gid),
             )
         else:
             self._attr_device_info = DeviceInfo(
@@ -432,21 +423,12 @@ class FirewallaBandwidthSensor(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = f"firewalla_group_{group_id}_{direction}"
         self._attr_name = direction.title()
         self._attr_icon = "mdi:download" if direction == "download" else "mdi:upload"
-        via_id = None
-        try:
-            dev_reg = dr.async_get(coordinator.hass)
-            parent = dev_reg.async_get_device(
-                identifiers={(DOMAIN, coordinator.box_gid)}
-            )
-            via_id = parent.id if parent else None
-        except (AttributeError, TypeError):
-            pass
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"group_{group_id}")},
             name=group_name,
             manufacturer=DEVICE_MANUFACTURER,
             model="Group",
-            via_device_id=via_id,
+            via_device=(DOMAIN, coordinator.box_gid),
         )
 
     def _get_group_data(self) -> dict[str, Any] | None:
