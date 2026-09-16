@@ -27,6 +27,7 @@ from .const import (
     ENTITY_ID_FORMATS,
     SENSOR_ATTRIBUTES,
     WAN_PEAK_BUCKET_SECONDS,
+    via_device_kwargs,
 )
 from .coordinator import FirewallaDataUpdateCoordinator
 
@@ -337,7 +338,11 @@ class FirewallaTimeLimitSensor(CoordinatorEntity, SensorEntity):
                 name=group_data["name"],
                 manufacturer=DEVICE_MANUFACTURER,
                 model="Group",
-                via_device=(DOMAIN, coordinator.box_gid),
+                **via_device_kwargs(
+                    getattr(coordinator, "box_device_id", None),
+                    DOMAIN,
+                    coordinator.box_gid,
+                ),
             )
         else:
             self._attr_device_info = DeviceInfo(
@@ -428,7 +433,11 @@ class FirewallaBandwidthSensor(CoordinatorEntity, SensorEntity):
             name=group_name,
             manufacturer=DEVICE_MANUFACTURER,
             model="Group",
-            via_device=(DOMAIN, coordinator.box_gid),
+            **via_device_kwargs(
+                getattr(coordinator, "box_device_id", None),
+                DOMAIN,
+                coordinator.box_gid,
+            ),
         )
 
     def _get_group_data(self) -> dict[str, Any] | None:

@@ -22,6 +22,7 @@ from .const import (
     DOMAIN,
     RULE_ATTRIBUTES,
     RULE_TYPES,
+    via_device_kwargs,
 )
 from .coordinator import FirewallaDataUpdateCoordinator
 
@@ -572,7 +573,11 @@ class FirewallaGroupInternetSwitch(CoordinatorEntity, SwitchEntity):
             name=group_name,
             manufacturer=DEVICE_MANUFACTURER,
             model="Group",
-            via_device=(DOMAIN, self.coordinator.box_gid),
+            **via_device_kwargs(
+                getattr(self.coordinator, "box_device_id", None),
+                DOMAIN,
+                self.coordinator.box_gid,
+            ),
         )
 
     @property
@@ -685,7 +690,11 @@ class FirewallaGroupRuleSwitch(CoordinatorEntity, SwitchEntity):
             name=group_name,
             manufacturer=DEVICE_MANUFACTURER,
             model="Group",
-            via_device=(DOMAIN, coordinator.box_gid),
+            **via_device_kwargs(
+                getattr(coordinator, "box_device_id", None),
+                DOMAIN,
+                coordinator.box_gid,
+            ),
         )
 
     def _get_group_data(self) -> dict[str, Any] | None:

@@ -658,6 +658,7 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
         """Initialize the coordinator."""
         self.api = FirewallaMSPClient(session, msp_domain, access_token)
         self.box_gid = box_gid
+        self.box_device_id: str | None = None
         self._previous_rules = {}
         self._previous_group_downloads: dict[str, int] = {}
         self._last_active_times: dict[str, float] = {}

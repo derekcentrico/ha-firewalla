@@ -163,6 +163,20 @@ TARGET_PREFIXES = {
 # Platforms
 PLATFORMS = ["switch", "sensor", "binary_sensor", "button"]
 
+from homeassistant.helpers.device_registry import DeviceInfo
+
+_HAS_VIA_DEVICE_ID = "via_device_id" in getattr(DeviceInfo, "__annotations__", {})
+
+
+def via_device_kwargs(
+    device_id: str | None, domain: str, box_gid: str
+) -> dict:
+    """Return the right via_device keyword for the running HA version."""
+    if _HAS_VIA_DEVICE_ID and device_id:
+        return {"via_device_id": device_id}
+    return {"via_device": (domain, box_gid)}
+
+
 # Device information constants
 DEVICE_MANUFACTURER = "Firewalla"
 DEVICE_MODEL_MAPPINGS = {

@@ -16,7 +16,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DEVICE_MANUFACTURER, DOMAIN
+from .const import DEVICE_MANUFACTURER, DOMAIN, via_device_kwargs
 from .coordinator import FirewallaDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -129,7 +129,11 @@ class FirewallaUserActivitySensor(CoordinatorEntity, BinarySensorEntity):
             name=group_name,
             manufacturer=DEVICE_MANUFACTURER,
             model="Group",
-            via_device=(DOMAIN, coordinator.box_gid),
+            **via_device_kwargs(
+                getattr(coordinator, "box_device_id", None),
+                DOMAIN,
+                coordinator.box_gid,
+            ),
         )
 
     def _get_group_data(self) -> dict[str, Any] | None:
@@ -190,7 +194,11 @@ class FirewallaDeviceOnlineSensor(CoordinatorEntity, BinarySensorEntity):
             name=group_name,
             manufacturer=DEVICE_MANUFACTURER,
             model="Group",
-            via_device=(DOMAIN, coordinator.box_gid),
+            **via_device_kwargs(
+                getattr(coordinator, "box_device_id", None),
+                DOMAIN,
+                coordinator.box_gid,
+            ),
         )
 
     def _get_device_data(self) -> dict[str, Any] | None:

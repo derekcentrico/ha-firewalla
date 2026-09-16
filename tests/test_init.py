@@ -36,12 +36,21 @@ class TestAsyncSetupEntry:
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
         mock_coordinator.data = {
             "rule_count": {"total": 5, "active": 3, "paused": 2},
+            "box_info": {"gid": "test_box_gid_456", "name": "Test Box", "model": "gold"},
         }
+
+        mock_dev_reg = MagicMock()
+        mock_device = MagicMock()
+        mock_device.id = "mock_device_id"
+        mock_dev_reg.async_get_or_create.return_value = mock_device
 
         with patch(
             "custom_components.firewalla.FirewallaDataUpdateCoordinator",
             return_value=mock_coordinator,
-        ), patch("custom_components.firewalla.async_get_clientsession"):
+        ), patch("custom_components.firewalla.async_get_clientsession"), patch(
+            "custom_components.firewalla.dr.async_get",
+            return_value=mock_dev_reg,
+        ):
 
             result = await async_setup_entry(mock_hass, mock_config_entry)
 
