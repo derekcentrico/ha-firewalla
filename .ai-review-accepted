@@ -49,5 +49,8 @@ custom_components/firewalla/wan_peak.py | future | Firewalla server timestamps a
 # Bucket allocation loop: clamped by WAN_PEAK_RETENTION_SECONDS
 custom_components/firewalla/wan_peak.py | _allocate_flow | bounded by retention window clamp
 
+# process_flows bucketing: same as above, bounded by retention + page limits
+custom_components/firewalla/coordinator.py | process_flows | bounded by retention window and pagination limits
+
 # Flow query filter matches constant: both are 1MB, constant only affects sensor display
 custom_components/firewalla/coordinator.py | total:>1MB | constant and query are both 1MB
