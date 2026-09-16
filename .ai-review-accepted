@@ -45,3 +45,9 @@ custom_components/firewalla/coordinator.py | block or significantly delay | boun
 
 # Future timestamps: Firewalla API returns server-side timestamps, not user-controlled
 custom_components/firewalla/wan_peak.py | future | Firewalla server timestamps are trusted
+
+# Bucket allocation loop: clamped by WAN_PEAK_RETENTION_SECONDS
+custom_components/firewalla/wan_peak.py | _allocate_flow | bounded by retention window clamp
+
+# Flow query filter matches constant: both are 1MB, constant only affects sensor display
+custom_components/firewalla/coordinator.py | total:>1MB | constant and query are both 1MB
