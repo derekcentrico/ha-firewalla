@@ -14,7 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfDataRate
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -39,24 +39,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Firewalla rule statistics sensor entities from a config entry."""
-    _LOGGER.debug(
-        "Setting up Firewalla rule statistics sensor platform for entry %s",
-        config_entry.entry_id,
-    )
-
     try:
-        # Get coordinator from hass.data
         coordinator: FirewallaDataUpdateCoordinator = hass.data[DOMAIN][
             config_entry.entry_id
         ]
 
-        # Create the rules summary sensor
         entities = []
 
         try:
             rules_sensor = FirewallaRulesSensor(coordinator)
             entities.append(rules_sensor)
-            _LOGGER.debug("Created rules summary sensor")
         except Exception as err:
             _LOGGER.error("Error creating rules summary sensor: %s", err)
 
@@ -94,10 +86,6 @@ async def async_setup_entry(
 
         if entities:
             async_add_entities(entities)
-            _LOGGER.info(
-                "Successfully added %d Firewalla sensor entities",
-                len(entities),
-            )
         else:
             _LOGGER.warning("No valid sensor entities could be created")
             async_add_entities([])
@@ -172,21 +160,8 @@ async def async_setup_entry(
         )
 
     except KeyError as err:
-        _LOGGER.error(
-            "Missing coordinator data for config entry %s: %s",
-            config_entry.entry_id,
-            err,
-        )
         raise HomeAssistantError(
             f"Coordinator not found for Firewalla integration: {err}"
-        ) from err
-    except Exception as err:
-        _LOGGER.exception(
-            "Unexpected error setting up Firewalla rule statistics sensor platform: %s",
-            err,
-        )
-        raise HomeAssistantError(
-            f"Failed to set up Firewalla rule statistics sensor platform: {err}"
         ) from err
 
 
@@ -241,20 +216,9 @@ class FirewallaRulesSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> int:
         """Return the total count of discovered rules."""
-        try:
-            if not self.coordinator.data or "rule_count" not in self.coordinator.data:
-                _LOGGER.debug("No rule count data available")
-                return 0
-
-            rule_count = self.coordinator.data["rule_count"]
-            total_rules = rule_count.get("total", 0)
-
-            _LOGGER.debug("Total rules count: %d", total_rules)
-            return total_rules
-
-        except Exception as err:
-            _LOGGER.error("Error getting total rules count: %s", err)
+        if not self.coordinator.data or "rule_count" not in self.coordinator.data:
             return 0
+        return self.coordinator.data["rule_count"].get("total", 0)
 
     @property
     def available(self) -> bool:
@@ -336,17 +300,6 @@ class FirewallaRulesSensor(CoordinatorEntity, SensorEntity):
         except Exception:
             return "mdi:shield-outline"
 
-    async def async_added_to_hass(self) -> None:
-        """When entity is added to hass."""
-        await super().async_added_to_hass()
-        _LOGGER.debug("Rules summary sensor entity added to hass: %s", self.name)
-
-    async def async_will_remove_from_hass(self) -> None:
-        """When entity will be removed from hass."""
-        await super().async_will_remove_from_hass()
-        _LOGGER.debug(
-            "Rules summary sensor entity being removed from hass: %s", self.name
-        )
 
 
 class FirewallaTimeLimitSensor(CoordinatorEntity, SensorEntity):
@@ -379,12 +332,21 @@ class FirewallaTimeLimitSensor(CoordinatorEntity, SensorEntity):
         if affiliated_group and coordinator.data and "groups" in coordinator.data:
             group_data = coordinator.data["groups"].get(affiliated_group)
         if group_data:
+            via_id = None
+            try:
+                dev_reg = dr.async_get(coordinator.hass)
+                parent = dev_reg.async_get_device(
+                    identifiers={(DOMAIN, coordinator.box_gid)}
+                )
+                via_id = parent.id if parent else None
+            except (AttributeError, TypeError):
+                pass
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, f"group_{affiliated_group}")},
                 name=group_data["name"],
                 manufacturer=DEVICE_MANUFACTURER,
                 model="Group",
-                via_device=(DOMAIN, coordinator.box_gid),
+                via_device_id=via_id,
             )
         else:
             self._attr_device_info = DeviceInfo(
@@ -470,12 +432,21 @@ class FirewallaBandwidthSensor(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = f"firewalla_group_{group_id}_{direction}"
         self._attr_name = direction.title()
         self._attr_icon = "mdi:download" if direction == "download" else "mdi:upload"
+        via_id = None
+        try:
+            dev_reg = dr.async_get(coordinator.hass)
+            parent = dev_reg.async_get_device(
+                identifiers={(DOMAIN, coordinator.box_gid)}
+            )
+            via_id = parent.id if parent else None
+        except (AttributeError, TypeError):
+            pass
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"group_{group_id}")},
             name=group_name,
             manufacturer=DEVICE_MANUFACTURER,
             model="Group",
-            via_device=(DOMAIN, coordinator.box_gid),
+            via_device_id=via_id,
         )
 
     def _get_group_data(self) -> dict[str, Any] | None:

@@ -11,12 +11,22 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DEVICE_MANUFACTURER, DOMAIN
+
+
+def _resolve_via_device_id(coordinator, identifiers: set[tuple[str, str]]) -> str | None:
+    """Look up a parent device's registry ID from its identifiers."""
+    try:
+        dev_reg = dr.async_get(coordinator.hass)
+        parent = dev_reg.async_get_device(identifiers=identifiers)
+        return parent.id if parent else None
+    except (AttributeError, TypeError):
+        return None
 from .coordinator import FirewallaDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -129,7 +139,9 @@ class FirewallaUserActivitySensor(CoordinatorEntity, BinarySensorEntity):
             name=group_name,
             manufacturer=DEVICE_MANUFACTURER,
             model="Group",
-            via_device=(DOMAIN, coordinator.box_gid),
+            via_device_id=_resolve_via_device_id(
+                coordinator, {(DOMAIN, coordinator.box_gid)}
+            ),
         )
 
     def _get_group_data(self) -> dict[str, Any] | None:
@@ -190,7 +202,9 @@ class FirewallaDeviceOnlineSensor(CoordinatorEntity, BinarySensorEntity):
             name=group_name,
             manufacturer=DEVICE_MANUFACTURER,
             model="Group",
-            via_device=(DOMAIN, coordinator.box_gid),
+            via_device_id=_resolve_via_device_id(
+                coordinator, {(DOMAIN, coordinator.box_gid)}
+            ),
         )
 
     def _get_device_data(self) -> dict[str, Any] | None:

@@ -226,40 +226,19 @@ async def _async_generate_dashboard(hass: HomeAssistant, dashboard_users: str) -
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Firewalla rule management from a config entry."""
-    _LOGGER.info(
-        "Setting up Firewalla rule management integration for entry %s", entry.entry_id
-    )
-
     try:
-        # Extract configuration data with validation
         msp_domain = entry.data.get(CONF_MSP_URL)
         access_token = entry.data.get(CONF_ACCESS_TOKEN)
         box_gid = entry.data.get(CONF_BOX_GID)
 
-        # Validate required configuration
         if not msp_domain or not access_token or not box_gid:
-            _LOGGER.error(
-                "Missing required configuration data: MSP Domain=%s, Token=%s, Box GID=%s",
-                bool(msp_domain),
-                bool(access_token),
-                bool(box_gid),
-            )
             raise ConfigEntryNotReady("Missing required configuration data")
 
-        _LOGGER.debug(
-            "Initializing Firewalla rule management with MSP domain: %s, Box GID: %s",
-            msp_domain,
-            box_gid,
-        )
-
-        # Get aiohttp session for API communication
         session = async_get_clientsession(hass)
 
-        # Get rule filter options
         include_filters = entry.options.get(CONF_INCLUDE_FILTERS, [])
         exclude_filters = entry.options.get(CONF_EXCLUDE_FILTERS, [])
 
-        # Get polling interval options
         base_poll_interval = entry.options.get(
             CONF_BASE_POLL_INTERVAL, DEFAULT_BASE_POLL_INTERVAL
         )
@@ -282,7 +261,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             CONF_WAN_UPLOAD_CAPACITY, DEFAULT_WAN_UPLOAD_CAPACITY
         )
 
-        # Initialize the data update coordinator for rule discovery
         coordinator = FirewallaDataUpdateCoordinator(
             hass=hass,
             session=session,
@@ -301,177 +279,60 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             wan_upload_capacity=wan_upload_capacity,
         )
 
-        # Restore WAN peak state before first refresh
         await coordinator.async_restore_wan_state()
-
-        # Test authentication and perform initial rule discovery
-        _LOGGER.debug(
-            "Testing MSP API authentication and performing initial rule discovery"
-        )
         await coordinator.async_config_entry_first_refresh()
 
-        # Log rule discovery results
-        if coordinator.data:
-            rule_count = coordinator.data.get("rule_count", {})
-            _LOGGER.info(
-                "Successfully discovered %d rules (%d active, %d paused)",
-                rule_count.get("total", 0),
-                rule_count.get("active", 0),
-                rule_count.get("paused", 0),
-            )
-
-        # Store coordinator in hass.data for access by platforms
         hass.data.setdefault(DOMAIN, {})
         hass.data[DOMAIN][entry.entry_id] = coordinator
 
-        _LOGGER.info("Successfully initialized Firewalla rule management coordinator")
-
-        # Set up platforms for rule control and monitoring
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-        # Set up options update listener
         entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
-        # Generate parental control dashboard if users are configured
         dashboard_users = entry.options.get(CONF_DASHBOARD_USERS, "")
         if dashboard_users:
             await _async_generate_dashboard(hass, dashboard_users)
 
-        _LOGGER.info("Successfully set up Firewalla rule management platforms")
-
         return True
 
-    except ConfigEntryAuthFailed as err:
-        _LOGGER.error(
-            "Authentication failed during Firewalla rule management setup: %s. "
-            "Please check your MSP credentials and try again.",
-            err,
-        )
-        # Re-raise with user-friendly message
-        raise ConfigEntryAuthFailed(
-            "Authentication failed. Please check your MSP credentials."
-        ) from err
-
+    except ConfigEntryAuthFailed:
+        raise
     except aiohttp.ClientConnectorError as err:
-        _LOGGER.error(
-            "Cannot connect to Firewalla MSP API at %s: %s. "
-            "Please check your network connection and MSP domain.",
-            msp_domain if "msp_domain" in locals() else "unknown",
-            err,
-        )
         raise ConfigEntryNotReady(
             f"Cannot connect to Firewalla MSP API: {err}"
         ) from err
-
     except aiohttp.ClientResponseError as err:
-        if err.status == 401:
-            _LOGGER.error(
-                "MSP API authentication failed with HTTP 401: Invalid access token"
-            )
+        if err.status in (401, 403):
             raise ConfigEntryAuthFailed(
-                "Invalid access token. Please check your MSP credentials."
+                f"MSP API authentication error (HTTP {err.status})"
             ) from err
-        elif err.status == 403:
-            _LOGGER.error(
-                "MSP API access forbidden with HTTP 403: Insufficient permissions"
-            )
-            raise ConfigEntryAuthFailed(
-                "Access forbidden. Please check your MSP account permissions."
-            ) from err
-        elif err.status >= 500:
-            _LOGGER.error(
-                "MSP API server error %d: %s. Service may be temporarily unavailable.",
-                err.status,
-                err.message,
-            )
-            raise ConfigEntryNotReady(
-                f"MSP API server error {err.status}. Please try again later."
-            ) from err
-        else:
-            _LOGGER.error("MSP API returned error %d: %s", err.status, err.message)
-            raise ConfigEntryNotReady(
-                f"MSP API error {err.status}: {err.message}"
-            ) from err
-
+        raise ConfigEntryNotReady(
+            f"MSP API error (HTTP {err.status}): {err.message}"
+        ) from err
     except aiohttp.ClientError as err:
-        _LOGGER.error(
-            "Network error during Firewalla rule management setup: %s. "
-            "Please check your network connection and MSP domain.",
-            err,
-        )
         raise ConfigEntryNotReady(
             f"Network error connecting to Firewalla MSP API: {err}"
         ) from err
-
-    except HomeAssistantError as err:
-        _LOGGER.error(
-            "Home Assistant error during Firewalla rule management setup: %s",
-            err,
-        )
-        # Re-raise Home Assistant errors as-is
+    except HomeAssistantError:
         raise
-
     except Exception as err:
-        _LOGGER.exception(
-            "Unexpected error during Firewalla rule management setup: %s. "
-            "This may indicate a configuration or system issue.",
-            err,
-        )
         raise ConfigEntryNotReady(
-            f"Unexpected error setting up Firewalla rule management integration: {err}"
+            f"Unexpected error setting up Firewalla: {err}"
         ) from err
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a Firewalla rule management config entry."""
-    _LOGGER.info(
-        "Unloading Firewalla rule management integration for entry %s", entry.entry_id
-    )
-
     try:
-        # Unload platforms
-        _LOGGER.debug("Unloading Firewalla rule management platforms: %s", PLATFORMS)
         unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
-        if unload_ok:
-            # Clean up coordinator and stored data
-            coordinator_data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-
-            if coordinator_data:
-                _LOGGER.debug("Cleaning up Firewalla coordinator resources")
-                # The coordinator will automatically clean up its resources
-                # when it goes out of scope, including the aiohttp session
-            else:
-                _LOGGER.warning(
-                    "No coordinator data found for entry %s during unload",
-                    entry.entry_id,
-                )
-
-            # Remove domain data if no more entries
-            if DOMAIN in hass.data and not hass.data[DOMAIN]:
-                hass.data.pop(DOMAIN, None)
-                _LOGGER.debug("Removed Firewalla domain data (no more entries)")
-
-            _LOGGER.info("Successfully unloaded Firewalla rule management integration")
-        else:
-            _LOGGER.error("Failed to unload some Firewalla rule management platforms")
-
-        return unload_ok
-
-    except KeyError as err:
-        _LOGGER.error("Missing data during Firewalla unload: %s", err)
+    except Exception:
         return False
-
-    except Exception as err:
-        _LOGGER.exception(
-            "Unexpected error unloading Firewalla rule management integration: %s", err
-        )
-        return False
+    if unload_ok:
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        if DOMAIN in hass.data and not hass.data[DOMAIN]:
+            hass.data.pop(DOMAIN, None)
+    return unload_ok
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload a Firewalla rule management config entry."""
-    _LOGGER.info(
-        "Reloading Firewalla rule management integration for entry %s", entry.entry_id
-    )
     await hass.config_entries.async_reload(entry.entry_id)

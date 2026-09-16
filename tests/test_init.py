@@ -96,7 +96,7 @@ class TestAsyncSetupEntry:
             return_value=mock_coordinator,
         ), patch("custom_components.firewalla.async_get_clientsession"):
 
-            with pytest.raises(ConfigEntryAuthFailed, match="Authentication failed"):
+            with pytest.raises(ConfigEntryAuthFailed, match="Auth failed"):
                 await async_setup_entry(mock_hass, mock_config_entry)
 
     @pytest.mark.asyncio
@@ -136,7 +136,7 @@ class TestAsyncSetupEntry:
             return_value=mock_coordinator,
         ), patch("custom_components.firewalla.async_get_clientsession"):
 
-            with pytest.raises(ConfigEntryAuthFailed, match="Invalid access token"):
+            with pytest.raises(ConfigEntryAuthFailed, match="authentication error"):
                 await async_setup_entry(mock_hass, mock_config_entry)
 
     @pytest.mark.asyncio
@@ -155,7 +155,7 @@ class TestAsyncSetupEntry:
             return_value=mock_coordinator,
         ), patch("custom_components.firewalla.async_get_clientsession"):
 
-            with pytest.raises(ConfigEntryAuthFailed, match="Access forbidden"):
+            with pytest.raises(ConfigEntryAuthFailed, match="authentication error"):
                 await async_setup_entry(mock_hass, mock_config_entry)
 
     @pytest.mark.asyncio
@@ -177,7 +177,7 @@ class TestAsyncSetupEntry:
             return_value=mock_coordinator,
         ), patch("custom_components.firewalla.async_get_clientsession"):
 
-            with pytest.raises(ConfigEntryNotReady, match="MSP API server error 500"):
+            with pytest.raises(ConfigEntryNotReady, match="MSP API error"):
                 await async_setup_entry(mock_hass, mock_config_entry)
 
     @pytest.mark.asyncio
