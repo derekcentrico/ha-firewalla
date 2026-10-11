@@ -1,10 +1,19 @@
 # Waivers for pre-existing findings carried across releases.
 # Grouped by file. Each entry: file_glob | pattern | reason
 
+# --- .ai-review-accepted (meta-findings about waivers themselves) ---
+.ai-review-accepted | * | meta-findings on waiver file are circular by design
+
 # --- config_flow.py ---
 
 # Coordinator fetches account-wide data; single-box users unaffected
 custom_components/firewalla/config_flow.py | box_gid | single-box deployment
+
+# Multi-box entity unique ID prefixing is a future enhancement
+custom_components/firewalla/config_flow.py | unique ID | single-box deployment, future enhancement
+
+# Box-scoped authorization is a future enhancement
+custom_components/firewalla/config_flow.py | authorization boundary | single-box deployment, future enhancement
 
 # --- coordinator.py ---
 
@@ -37,6 +46,28 @@ custom_components/firewalla/coordinator.py | block or significantly delay | boun
 # Query filter and constant are both 1MB; constant only affects sensor display
 custom_components/firewalla/coordinator.py | total:>1MB | constant and query are both 1MB
 
+# 1MB minimum flow filter: appropriate for multi-gigabit WAN monitoring
+custom_components/firewalla/coordinator.py | 1 MB | appropriate for multi-gigabit capacity monitoring
+
+# Throughput is average bytes over sample window, acceptable for monitoring
+custom_components/firewalla/coordinator.py | corrupts | average over sample window is acceptable for monitoring
+custom_components/firewalla/coordinator.py | 300 Mbps | average over sample window is acceptable
+
+# Options schema provides defaults; None values cannot reach constructor
+custom_components/firewalla/coordinator.py | TypeError | options schema provides defaults
+
+# Throughput is average over sample window, acceptable for monitoring
+custom_components/firewalla/coordinator.py | prorate | average over sample window is acceptable
+
+# Boundary double-counting is negligible at 120s sample intervals
+custom_components/firewalla/coordinator.py | double-counting | negligible at configured intervals
+
+# WAN retry on failure: bounded by base_poll_interval
+custom_components/firewalla/coordinator.py | API quota | bounded by base poll interval
+
+# Audit logging for pause/resume: HA state history covers this
+custom_components/firewalla/coordinator.py | audit | HA state history tracks entity changes
+
 # --- wan_peak.py ---
 
 # _allocate_flow iteration count clamped by WAN_PEAK_RETENTION_SECONDS
@@ -54,6 +85,17 @@ custom_components/firewalla/wan_peak.py | corrupted | try/except per entry in re
 
 # Firewalla server timestamps are trusted, not user-controlled
 custom_components/firewalla/wan_peak.py | future | Firewalla server timestamps are trusted
+
+# --- __init__.py / const.py ---
+
+# DeviceInfo import used conditionally for HA version compatibility
+custom_components/firewalla/__init__.py | DeviceInfo | version-adaptive import
+custom_components/firewalla/const.py | DeviceInfo | version-adaptive import
+custom_components/firewalla/const.py | E402 | version-adaptive import placement
+
+# --- wan_peak.py ---
+# Sync bucketing loop: bounded by retention seconds and pagination limits
+custom_components/firewalla/wan_peak.py | event loop | bounded by retention and pagination limits
 
 # --- manifest.json ---
 

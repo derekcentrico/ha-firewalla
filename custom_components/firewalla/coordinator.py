@@ -1311,7 +1311,15 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
                 ):
                     changes["modified"].append(rule_id)
 
-        # Log detailed change information
+        # Skip logging on the initial population to avoid flooding HA's
+        # log rate limiter when hundreds of rules all appear as "added".
+        if not self._previous_rules:
+            if changes["added"]:
+                _LOGGER.debug(
+                    "Initial rule load: %d rules discovered", len(changes["added"])
+                )
+            return changes
+
         for rule_id in changes["added"]:
             rule = current_rules.get(rule_id, {})
             _LOGGER.info("Rule added: %s [%s]", self._describe_rule(rule), rule_id)
@@ -1325,7 +1333,6 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
             previous_rule = self._previous_rules.get(rule_id, {})
             desc = self._describe_rule(current_rule)
 
-            # Describe what changed
             detail_parts = []
             if current_rule.get("paused") != previous_rule.get("paused"):
                 if current_rule.get("paused"):
