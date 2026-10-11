@@ -659,7 +659,7 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
         self.api = FirewallaMSPClient(session, msp_domain, access_token)
         self.box_gid = box_gid
         self.box_device_id: str | None = None
-        self._previous_rules = {}
+        self._previous_rules: dict[str, Any] | None = None
         self._previous_group_downloads: dict[str, int] = {}
         self._last_active_times: dict[str, float] = {}
         self.include_filters = include_filters or []
@@ -1287,17 +1287,24 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
             "modified": [],
         }
 
-        # Find added rules
+        # On the first successful fetch, _previous_rules is None. Log a
+        # single DEBUG line instead of per-rule INFO to avoid flooding HA's
+        # log rate limiter when hundreds of rules all appear as "added".
+        if self._previous_rules is None:
+            if current_rules:
+                _LOGGER.debug(
+                    "Initial rule load: %d rules discovered", len(current_rules)
+                )
+            return changes
+
         for rule_id in current_rules:
             if rule_id not in self._previous_rules:
                 changes["added"].append(rule_id)
 
-        # Find removed rules
         for rule_id in self._previous_rules:
             if rule_id not in current_rules:
                 changes["removed"].append(rule_id)
 
-        # Find modified rules
         for rule_id in current_rules:
             if rule_id in self._previous_rules:
                 current_rule = current_rules[rule_id]
@@ -1311,7 +1318,6 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
                 ):
                     changes["modified"].append(rule_id)
 
-        # Log detailed change information
         for rule_id in changes["added"]:
             rule = current_rules.get(rule_id, {})
             _LOGGER.info("Rule added: %s [%s]", self._describe_rule(rule), rule_id)
@@ -1325,7 +1331,6 @@ class FirewallaDataUpdateCoordinator(DataUpdateCoordinator):
             previous_rule = self._previous_rules.get(rule_id, {})
             desc = self._describe_rule(current_rule)
 
-            # Describe what changed
             detail_parts = []
             if current_rule.get("paused") != previous_rule.get("paused"):
                 if current_rule.get("paused"):
